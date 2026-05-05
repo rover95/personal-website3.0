@@ -2,9 +2,9 @@
 
 /* eslint-disable react-hooks/immutability -- R3F camera controls intentionally mutate Three.js objects. */
 
-import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { KeyboardControls, useKeyboardControls } from "@react-three/drei";
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { Canvas, ThreeEvent, useFrame, useThree } from "@react-three/fiber";
+import { KeyboardControls, useKeyboardControls, useTexture } from "@react-three/drei";
+import { memo, MutableRefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 
 const moveMap = [
@@ -29,6 +29,45 @@ const PLAYER_RADIUS = 0.55;
 const MAP_BOUNDS = { minX: -22.3, maxX: 22.3, minZ: -16.4, maxZ: 18.9 };
 const canvasGlConfig = { antialias: false, powerPreference: "low-power" as const };
 const canvasCameraConfig = { position: [0, CAMERA_HEIGHT, 12] as [number, number, number], fov: 72, near: 0.1, far: 90 };
+const ATLAS_URL = "/photography/atlas/gallery-atlas-lod-1024-v2.jpg";
+const PHOTO_RENDER_DISTANCE = 15;
+const PHOTO_RENDER_DOT = 0.12;
+const photoPreviews = [
+  "20230225-_DSC7339-编辑.webp",
+  "20230513-_DSC2435-编辑.webp",
+  "20230623-_DSC5450-编辑.webp",
+  "20230709-_DSC6531.webp",
+  "20230711-_DSC7213.webp",
+  "20230713-_DSC7541.webp",
+  "20230718-_DSC8385.webp",
+  "20230723-_DSC9675.webp",
+  "20230724-_DSC9815.webp",
+  "20230728-_DSC1070.webp",
+  "20230730-_DSC1504.webp",
+  "20230818-_DSC3796-编辑.webp",
+  "DSC_2667.webp",
+].map((fileName, index) => ({
+  id: index + 1,
+  modalSrc: `/photography/modal/photo-${String(index + 1).padStart(2, "0")}.webp`,
+  previewSrc: `/photography/previews/${encodeURIComponent(fileName)}`,
+  fullSrc: `/photography/thumbs/${encodeURIComponent(fileName)}`,
+  title: `作品${index + 1}`,
+}));
+const atlasItems = [
+  { id: 1, aspect: 0.737394, u0: 0.040039, u1: 0.209961, v0: 0.759766, v1: 0.990234 },
+  { id: 2, aspect: 1.531859, u0: 0.259766, u1: 0.490234, v0: 0.799805, v1: 0.950195 },
+  { id: 3, aspect: 0.667553, u0: 0.547852, u1: 0.702148, v0: 0.759766, v1: 0.990234 },
+  { id: 4, aspect: 0.667553, u0: 0.797852, u1: 0.952148, v0: 0.759766, v1: 0.990234 },
+  { id: 5, aspect: 1.741625, u0: 0.009766, u1: 0.240234, v0: 0.558594, v1: 0.691406 },
+  { id: 6, aspect: 1.551832, u0: 0.259766, u1: 0.490234, v0: 0.550781, v1: 0.699219 },
+  { id: 7, aspect: 0.629482, u0: 0.551758, u1: 0.697266, v0: 0.509766, v1: 0.740234 },
+  { id: 8, aspect: 1.498008, u0: 0.759766, u1: 0.990234, v0: 0.547852, v1: 0.702148 },
+  { id: 9, aspect: 1.591941, u0: 0.009766, u1: 0.240234, v0: 0.302734, v1: 0.447266 },
+  { id: 10, aspect: 1, u0: 0.259766, u1: 0.490234, v0: 0.259766, v1: 0.490234 },
+  { id: 11, aspect: 0.687554, u0: 0.545898, u1: 0.704102, v0: 0.259766, v1: 0.490234 },
+  { id: 12, aspect: 1.497961, u0: 0.759766, u1: 0.990234, v0: 0.297852, v1: 0.452148 },
+  { id: 13, aspect: 1.498008, u0: 0.009766, u1: 0.240234, v0: 0.047852, v1: 0.202148 },
+];
 
 type FrameData = {
   id: number;
@@ -45,7 +84,6 @@ type CameraPose = {
   rotation: number;
 };
 
-type LockState = "unsupported" | "idle" | "locked" | "cooldown";
 type BoxSpec = {
   id: string;
   position: [number, number, number];
@@ -57,19 +95,44 @@ type ZoneLabel = {
   position: [number, number, number];
 };
 type GalleryCanvasProps = {
-  changeLockState: (state: LockState) => void;
-  registerLockHandler: (handler: (() => void) | null) => void;
+  dragMovedRef: MutableRefObject<boolean>;
+  selectedFrameId: number | null;
+  selectFrame: (frame: FrameData) => void;
+  setWebglLost: (lost: boolean) => void;
   reportPose: (pose: CameraPose) => void;
 };
+
+function ContextLossMonitor({ setWebglLost }: { setWebglLost: (lost: boolean) => void }) {
+  const { gl } = useThree();
+
+  useEffect(() => {
+    const canvas = gl.domElement;
+    const onContextLost = (event: Event) => {
+      event.preventDefault();
+      setWebglLost(true);
+    };
+    const onContextRestored = () => setWebglLost(false);
+
+    canvas.addEventListener("webglcontextlost", onContextLost, false);
+    canvas.addEventListener("webglcontextrestored", onContextRestored, false);
+
+    return () => {
+      canvas.removeEventListener("webglcontextlost", onContextLost, false);
+      canvas.removeEventListener("webglcontextrestored", onContextRestored, false);
+    };
+  }, [gl, setWebglLost]);
+
+  return null;
+}
 
 const frames: FrameData[] = [
   frame(1, [-4.8, 2.15, -15.72], [0, 0, 0]),
   frame(2, [0, 2.15, -15.72], [0, 0, 0]),
   frame(3, [4.8, 2.15, -15.72], [0, 0, 0]),
-  frame(4, [-5.55, 1.85, -4.8], [0, -Math.PI / 2, 0], [2.1, 1.9]),
-  frame(5, [-5.55, 1.85, 5.4], [0, -Math.PI / 2, 0], [2.1, 1.9]),
-  frame(6, [5.55, 1.85, -4.8], [0, Math.PI / 2, 0], [2.1, 1.9]),
-  frame(7, [5.55, 1.85, 5.4], [0, Math.PI / 2, 0], [2.1, 1.9]),
+  frame(4, [-17.2, 2.0, -15.72], [0, 0, 0], [2.2, 1.75]),
+  frame(5, [-12.8, 2.0, -15.72], [0, 0, 0], [2.2, 1.75]),
+  frame(6, [12.8, 2.0, -15.72], [0, 0, 0], [2.2, 1.75]),
+  frame(7, [17.2, 2.0, -15.72], [0, 0, 0], [2.2, 1.75]),
   frame(8, [21.72, 1.85, -10.2], [0, -Math.PI / 2, 0], [2, 1.9]),
   frame(9, [21.72, 1.85, 4.4], [0, -Math.PI / 2, 0], [2, 1.9]),
   frame(10, [14.8, 1.82, 15.05], [0, Math.PI, 0], [2.9, 1.55]),
@@ -187,105 +250,72 @@ function PlayerController() {
   return null;
 }
 
-function FirstPersonLook({
-  changeLockState,
-  registerLockHandler,
-}: {
-  changeLockState?: (state: LockState) => void;
-  registerLockHandler: (handler: (() => void) | null) => void;
-}) {
+function DragLookControls({ dragMovedRef }: { dragMovedRef: MutableRefObject<boolean> }) {
   const { camera, gl } = useThree();
-  const cooldownUntil = useRef(0);
-  const wasLocked = useRef(false);
-  const yaw = useRef(0);
-  const pitch = useRef(0);
-  const setLockStateSafe = useCallback(
-    (state: LockState) => {
-      if (typeof changeLockState === "function") changeLockState(state);
-    },
-    [changeLockState],
-  );
+  const dragState = useRef({
+    active: false,
+    lastX: 0,
+    lastY: 0,
+    pitch: 0,
+    totalMove: 0,
+    yaw: 0,
+  });
 
   useEffect(() => {
     const canvas = gl.domElement;
-    const supportsPointerLock =
-      "pointerLockElement" in document && "exitPointerLock" in document && "requestPointerLock" in canvas;
-
-    if (!supportsPointerLock) {
-      setLockStateSafe("unsupported");
-      registerLockHandler(null);
-      return;
-    }
-
-    setLockStateSafe("idle");
     camera.rotation.order = "YXZ";
-    yaw.current = camera.rotation.y;
-    pitch.current = camera.rotation.x;
 
-    const requestLock = () => {
-      if (document.pointerLockElement === canvas) return;
-      if (Date.now() < cooldownUntil.current) {
-        setLockStateSafe("cooldown");
-        return;
-      }
-
-      const lockResult = canvas.requestPointerLock() as Promise<void> | void;
-      lockResult?.catch(() => {
-        setLockStateSafe("idle");
-      });
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.button !== 0) return;
+      dragState.current.active = true;
+      dragState.current.lastX = event.clientX;
+      dragState.current.lastY = event.clientY;
+      dragState.current.pitch = camera.rotation.x;
+      dragState.current.totalMove = 0;
+      dragState.current.yaw = camera.rotation.y;
+      dragMovedRef.current = false;
+      canvas.setPointerCapture?.(event.pointerId);
     };
 
-    registerLockHandler(requestLock);
+    const onPointerMove = (event: PointerEvent) => {
+      if (!dragState.current.active) return;
 
-    const onMouseMove = (event: MouseEvent) => {
-      if (document.pointerLockElement !== canvas) return;
+      const deltaX = event.clientX - dragState.current.lastX;
+      const deltaY = event.clientY - dragState.current.lastY;
+      dragState.current.lastX = event.clientX;
+      dragState.current.lastY = event.clientY;
+      dragState.current.totalMove += Math.abs(deltaX) + Math.abs(deltaY);
 
-      yaw.current -= event.movementX * 0.0022;
-      pitch.current -= event.movementY * 0.0022;
-      pitch.current = THREE.MathUtils.clamp(pitch.current, -Math.PI / 2 + 0.08, Math.PI / 2 - 0.08);
-      camera.rotation.set(pitch.current, yaw.current, 0, "YXZ");
+      if (dragState.current.totalMove > 5) dragMovedRef.current = true;
+
+      dragState.current.yaw -= deltaX * 0.004;
+      dragState.current.pitch -= deltaY * 0.004;
+      dragState.current.pitch = THREE.MathUtils.clamp(
+        dragState.current.pitch,
+        -Math.PI / 2 + 0.08,
+        Math.PI / 2 - 0.08,
+      );
+      camera.rotation.set(dragState.current.pitch, dragState.current.yaw, 0, "YXZ");
     };
 
-    document.addEventListener("mousemove", onMouseMove);
+    const onPointerUp = (event: PointerEvent) => {
+      dragState.current.active = false;
+      canvas.releasePointerCapture?.(event.pointerId);
+      window.setTimeout(() => {
+        dragMovedRef.current = false;
+      }, 120);
+    };
+
+    canvas.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
 
     return () => {
-      document.removeEventListener("mousemove", onMouseMove);
-      registerLockHandler(null);
+      canvas.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
     };
-  }, [camera, gl, registerLockHandler, setLockStateSafe]);
-
-  useEffect(() => {
-    const onLockChange = () => {
-      const lockedElement = document.pointerLockElement;
-      const locked = lockedElement === gl.domElement;
-
-      if (locked) {
-        wasLocked.current = true;
-        setLockStateSafe("locked");
-        return;
-      }
-
-      if (wasLocked.current) {
-        cooldownUntil.current = Date.now() + 900;
-        wasLocked.current = false;
-        setLockStateSafe("cooldown");
-        window.setTimeout(() => {
-          if (!document.pointerLockElement) setLockStateSafe("idle");
-        }, 950);
-        return;
-      }
-
-      setLockStateSafe("idle");
-    };
-
-    document.addEventListener("pointerlockchange", onLockChange);
-    document.addEventListener("pointerlockerror", onLockChange);
-
-    return () => {
-      document.removeEventListener("pointerlockchange", onLockChange);
-      document.removeEventListener("pointerlockerror", onLockChange);
-    };
-  }, [gl, setLockStateSafe]);
+  }, [camera, dragMovedRef, gl]);
 
   return null;
 }
@@ -354,7 +384,19 @@ function WallBox({ wall }: { wall: BoxSpec }) {
   );
 }
 
-function PhotoFrame({ frame }: { frame: FrameData }) {
+function PhotoFrame({
+  atlasTexture,
+  dragMovedRef,
+  frame,
+  selectedFrameId,
+  selectFrame,
+}: {
+  atlasTexture: THREE.Texture;
+  dragMovedRef: MutableRefObject<boolean>;
+  frame: FrameData;
+  selectedFrameId: number | null;
+  selectFrame: (frame: FrameData) => void;
+}) {
   if (frame.kind === "object") {
     return (
       <group position={frame.position} rotation={frame.rotation}>
@@ -370,7 +412,9 @@ function PhotoFrame({ frame }: { frame: FrameData }) {
     );
   }
 
-  const [width, height] = frame.size ?? [2.5, 1.75];
+  const maxSize = frame.size ?? [2.5, 1.75];
+  const atlasItem = atlasItems[(frame.id - 1) % atlasItems.length];
+  const [width, height] = fitInsideAspect(maxSize, atlasItem.aspect);
 
   return (
     <group position={frame.position} rotation={frame.rotation}>
@@ -378,14 +422,16 @@ function PhotoFrame({ frame }: { frame: FrameData }) {
         <boxGeometry args={[width + 0.34, height + 0.34, 0.16]} />
         <meshStandardMaterial color="#3a332b" roughness={0.48} metalness={0.18} />
       </mesh>
-      <mesh position={[0, 0, 0.03]}>
-        <planeGeometry args={[width, height]} />
-        <meshStandardMaterial color={frame.color} emissive={frame.color} emissiveIntensity={0.05} roughness={0.62} />
-      </mesh>
-      <mesh position={[0, 0, 0.04]}>
-        <planeGeometry args={[width * 0.78, height * 0.55]} />
-        <meshBasicMaterial color="#f7efe2" transparent opacity={0.24} />
-      </mesh>
+      <AtlasPhotoPlane
+        dragMovedRef={dragMovedRef}
+        frame={frame}
+        forceVisible={selectedFrameId === frame.id}
+        item={atlasItem}
+        selectFrame={selectFrame}
+        texture={atlasTexture}
+        width={width}
+        height={height}
+      />
       <mesh position={[0, -height / 2 - 0.26, 0.07]}>
         <planeGeometry args={[0.58, 0.12]} />
         <meshBasicMaterial color="#11100c" />
@@ -394,15 +440,106 @@ function PhotoFrame({ frame }: { frame: FrameData }) {
   );
 }
 
-function GalleryScene({
-  changeLockState,
-  registerLockHandler,
-  reportPose,
+function fitInsideAspect([maxWidth, maxHeight]: [number, number], aspect: number): [number, number] {
+  const maxAspect = maxWidth / maxHeight;
+
+  if (aspect > maxAspect) return [maxWidth, maxWidth / aspect];
+
+  return [maxHeight * aspect, maxHeight];
+}
+
+function AtlasPhotoPlane({
+  dragMovedRef,
+  forceVisible,
+  frame,
+  height,
+  item,
+  selectFrame,
+  texture,
+  width,
 }: {
-  changeLockState: (state: LockState) => void;
-  registerLockHandler: (handler: (() => void) | null) => void;
-  reportPose: (pose: CameraPose) => void;
+  dragMovedRef: MutableRefObject<boolean>;
+  forceVisible: boolean;
+  frame: FrameData;
+  height: number;
+  item: (typeof atlasItems)[number];
+  selectFrame: (frame: FrameData) => void;
+  texture: THREE.Texture;
+  width: number;
 }) {
+  const meshRef = useRef<THREE.Mesh>(null);
+  const geometry = useMemo(() => {
+    const photoGeometry = new THREE.PlaneGeometry(width, height);
+
+    photoGeometry.setAttribute(
+      "uv",
+      new THREE.Float32BufferAttribute(
+        [
+          item.u0,
+          item.v1,
+          item.u1,
+          item.v1,
+          item.u0,
+          item.v0,
+          item.u1,
+          item.v0,
+        ],
+        2,
+      ),
+    );
+
+    return photoGeometry;
+  }, [height, item.u0, item.u1, item.v0, item.v1, width]);
+
+  const handleClick = useCallback(
+    (event: ThreeEvent<MouseEvent>) => {
+      event.stopPropagation();
+      if (dragMovedRef.current) return;
+      selectFrame(frame);
+    },
+    [dragMovedRef, frame, selectFrame],
+  );
+
+  useFrame(({ camera }) => {
+    if (!meshRef.current) return;
+
+    const framePosition = new THREE.Vector3(...frame.position);
+    const toFrame = framePosition.sub(camera.position);
+    const distance = toFrame.length();
+    const cameraForward = new THREE.Vector3();
+    camera.getWorldDirection(cameraForward);
+    const viewDot = cameraForward.dot(toFrame.normalize());
+
+    meshRef.current.visible =
+      forceVisible || (distance <= PHOTO_RENDER_DISTANCE && viewDot >= PHOTO_RENDER_DOT);
+  });
+
+  return (
+    <mesh ref={meshRef} geometry={geometry} onClick={handleClick} position={[0, 0, 0.03]}>
+      <meshBasicMaterial map={texture} toneMapped={false} />
+    </mesh>
+  );
+}
+
+function GalleryScene({
+  dragMovedRef,
+  reportPose,
+  selectedFrameId,
+  selectFrame,
+}: {
+  dragMovedRef: MutableRefObject<boolean>;
+  reportPose: (pose: CameraPose) => void;
+  selectedFrameId: number | null;
+  selectFrame: (frame: FrameData) => void;
+}) {
+  const atlasTexture = useTexture(ATLAS_URL);
+
+  atlasTexture.colorSpace = THREE.SRGBColorSpace;
+  atlasTexture.anisotropy = 2;
+  atlasTexture.generateMipmaps = true;
+  atlasTexture.minFilter = THREE.LinearFilter;
+  atlasTexture.magFilter = THREE.LinearFilter;
+
   return (
     <>
       <color attach="background" args={["#05070a"]} />
@@ -415,10 +552,17 @@ function GalleryScene({
       <pointLight position={[-16, 2.8, 8]} color="#fff3dc" intensity={1.5} distance={12} />
       <Room />
       {frames.map((frame) => (
-        <PhotoFrame key={frame.id} frame={frame} />
+        <PhotoFrame
+          key={frame.id}
+          atlasTexture={atlasTexture}
+          dragMovedRef={dragMovedRef}
+          frame={frame}
+          selectedFrameId={selectedFrameId}
+          selectFrame={selectFrame}
+        />
       ))}
       <PlayerController />
-      <FirstPersonLook changeLockState={changeLockState} registerLockHandler={registerLockHandler} />
+      <DragLookControls dragMovedRef={dragMovedRef} />
       <CameraPoseReporter reportPose={reportPose} />
     </>
   );
@@ -481,18 +625,77 @@ function MiniMap({ pose }: { pose: CameraPose }) {
   );
 }
 
+function PhotoModal({ frame, onClose }: { frame: FrameData; onClose: () => void }) {
+  const photo = photoPreviews[(frame.id - 1) % photoPreviews.length];
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [onClose]);
+
+  return (
+    <div
+      className="absolute inset-0 z-30 grid place-items-center bg-black/85 p-5"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label={`${frame.title} 放大预览`}
+    >
+      <div
+        className="flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-[2rem] bg-[#f4eddf] p-3 text-[#11100c]"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="mb-3 flex items-center justify-between gap-4 px-2">
+          <div>
+            <p className="text-xs font-black tracking-[0.28em] text-[#6f6253]">PHOTO PREVIEW</p>
+            <h3 className="mt-1 text-xl font-bold">{frame.title}</h3>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full bg-[#11100c] px-4 py-2 text-sm font-bold text-[#f4eddf] transition hover:bg-[#ff5d2a]"
+          >
+            关闭
+          </button>
+        </div>
+        <div className="grid min-h-0 flex-1 place-items-center overflow-hidden rounded-[1.4rem] bg-[#11100c]">
+          {/* eslint-disable-next-line @next/next/no-img-element -- Modal preview uses generated static thumbnails. */}
+          <img
+            alt={frame.title}
+            className="block max-h-[72vh] max-w-full object-contain"
+          decoding="async"
+          draggable={false}
+          src={photo.modalSrc}
+        />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const GalleryCanvas = memo(function GalleryCanvas({
-  changeLockState,
-  registerLockHandler,
+  dragMovedRef,
   reportPose,
+  selectedFrameId,
+  selectFrame,
+  setWebglLost,
 }: GalleryCanvasProps) {
   return (
     <KeyboardControls map={moveMap}>
       <Canvas dpr={1} gl={canvasGlConfig} camera={canvasCameraConfig}>
+        <ContextLossMonitor setWebglLost={setWebglLost} />
         <GalleryScene
-          changeLockState={changeLockState}
-          registerLockHandler={registerLockHandler}
+          dragMovedRef={dragMovedRef}
           reportPose={reportPose}
+          selectedFrameId={selectedFrameId}
+          selectFrame={selectFrame}
         />
       </Canvas>
     </KeyboardControls>
@@ -500,44 +703,41 @@ const GalleryCanvas = memo(function GalleryCanvas({
 });
 
 export default function GalleryExperience() {
-  const [lockState, setLockState] = useState<LockState>("idle");
   const [cameraPose, setCameraPose] = useState<CameraPose>({ x: 0, z: 12, rotation: 0 });
-  const lockHandler = useRef<(() => void) | null>(null);
-  const registerLockHandler = useCallback((handler: (() => void) | null) => {
-    lockHandler.current = handler;
-  }, []);
-  const changeLockState = useCallback((state: LockState) => {
-    setLockState(state);
-  }, []);
+  const [webglLost, setWebglLost] = useState(false);
+  const [selectedFrame, setSelectedFrame] = useState<FrameData | null>(null);
+  const dragMovedRef = useRef(false);
   const reportPose = useCallback((pose: CameraPose) => {
     setCameraPose(pose);
   }, []);
-
-  const lockLabel =
-    lockState === "unsupported"
-      ? "当前浏览器不支持鼠标锁定"
-      : lockState === "locked"
-        ? "已进入 / ESC 退出"
-        : lockState === "cooldown"
-          ? "稍等后可再次进入"
-          : "进入画廊视角";
+  const selectFrame = useCallback((frameData: FrameData) => {
+    setSelectedFrame(frameData);
+  }, []);
 
   return (
     <div className="gallery-canvas relative rounded-[2rem]">
-      <button
-        type="button"
-        disabled={lockState === "unsupported" || lockState === "locked" || lockState === "cooldown"}
-        onClick={() => lockHandler.current?.()}
-        className="absolute left-5 top-5 z-10 rounded-2xl border border-white/10 bg-black/45 px-4 py-3 text-xs font-semibold tracking-[0.2em] text-[#f0eadc]/85 backdrop-blur transition hover:bg-black/65 disabled:cursor-not-allowed disabled:opacity-65"
-      >
-        {lockLabel}
-      </button>
+      <div className="pointer-events-none absolute left-5 top-5 z-10 rounded-2xl border border-white/10 bg-black/45 px-4 py-3 text-xs font-semibold tracking-[0.18em] text-[#f0eadc]/85">
+        左键拖动视角 / WASD 移动 / 点击照片放大
+      </div>
       <GalleryCanvas
-        changeLockState={changeLockState}
-        registerLockHandler={registerLockHandler}
+        dragMovedRef={dragMovedRef}
         reportPose={reportPose}
+        selectedFrameId={selectedFrame?.id ?? null}
+        selectFrame={selectFrame}
+        setWebglLost={setWebglLost}
       />
       <MiniMap pose={cameraPose} />
+      {webglLost ? (
+        <div className="absolute inset-0 z-40 grid place-items-center bg-black/80 p-6 text-center text-[#f4eddf]">
+          <div className="max-w-md rounded-3xl bg-[#11100c] p-6">
+            <p className="text-sm font-black tracking-[0.28em] text-[#ff5d2a]">WEBGL CONTEXT LOST</p>
+            <p className="mt-4 text-sm leading-7 text-[#f4eddf]/75">
+              浏览器释放了 WebGL 上下文。请刷新页面；如果在开发模式下，请重启 dev server 以清理旧纹理缓存。
+            </p>
+          </div>
+        </div>
+      ) : null}
+      {selectedFrame ? <PhotoModal frame={selectedFrame} onClose={() => setSelectedFrame(null)} /> : null}
     </div>
   );
 }

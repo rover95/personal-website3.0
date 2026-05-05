@@ -23,8 +23,8 @@ export default function PhotographyPage() {
             </h1>
           </div>
           <div className="max-w-xl rounded-3xl border border-white/10 bg-white/[0.06] p-5 text-sm leading-7 text-[#f0eadc]/70 backdrop-blur">
-            点击画廊左上角按钮进入鼠标锁定视角。使用 W/A/S/D 移动，鼠标环顾，Esc 退出。当前空间已按参考图布置
-            21 个展品点位，可替换为真实摄影纹理。
+            使用 W/A/S/D 移动，按住鼠标左键拖动视角，点击照片可放大查看。当前空间已按参考图布置
+            21 个展品点位。
           </div>
         </div>
         <GalleryExperience />
