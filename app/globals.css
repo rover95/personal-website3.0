@@ -1,0 +1,74 @@
+@import "tailwindcss";
+
+:root {
+  --ink: #11100c;
+  --paper: #f0eadc;
+  --ember: #ff5d2a;
+  --moss: #335f4a;
+  --cyan: #72d7d8;
+  --night: #080b10;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  overflow-x: hidden;
+  background:
+    radial-gradient(circle at 12% 12%, rgba(255, 93, 42, 0.22), transparent 28rem),
+    radial-gradient(circle at 88% 8%, rgba(114, 215, 216, 0.25), transparent 30rem),
+    linear-gradient(135deg, #f6f0df 0%, #e2dac7 42%, #151813 100%);
+  color: var(--ink);
+  font-family: var(--font-chinese), var(--font-sans), sans-serif;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.site-shell {
+  position: relative;
+  min-height: 100vh;
+}
+
+.noise-layer {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  opacity: 0.18;
+  background-image:
+    linear-gradient(rgba(17, 16, 12, 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(17, 16, 12, 0.07) 1px, transparent 1px);
+  background-size: 42px 42px;
+  mask-image: linear-gradient(to bottom, black, transparent 82%);
+}
+
+.reveal-up {
+  opacity: 0;
+  transform: translateY(28px);
+}
+
+.gallery-canvas {
+  height: calc(100vh - 112px);
+  min-height: 620px;
+  overflow: hidden;
+  border: 1px solid rgba(240, 234, 220, 0.22);
+  background: #05070a;
+  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.45);
+}
+
+@media (max-width: 768px) {
+  .gallery-canvas {
+    height: 74vh;
+    min-height: 520px;
+  }
+}

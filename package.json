@@ -1,0 +1,36 @@
+{
+  "name": "personal-website3",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@gsap/react": "latest",
+    "@react-three/drei": "latest",
+    "@react-three/fiber": "latest",
+    "@tailwindcss/postcss": "latest",
+    "gsap": "latest",
+    "next": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "three": "latest"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "eslint": "latest",
+    "eslint-config-next": "latest",
+    "tailwindcss": "latest",
+    "typescript": "latest"
+  },
+  "overrides": {
+    "next": {
+      "postcss": "8.5.10"
+    }
+  }
+}
