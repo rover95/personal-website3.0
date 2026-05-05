@@ -6,6 +6,7 @@ import { Canvas, ThreeEvent, useFrame, useThree } from "@react-three/fiber";
 import { KeyboardControls, useKeyboardControls, useTexture } from "@react-three/drei";
 import { memo, MutableRefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
+import { galleryFrameConfig } from "@/components/galleryConfig";
 
 const moveMap = [
   { name: "forward", keys: ["KeyW", "ArrowUp"] },
@@ -73,6 +74,7 @@ type FrameData = {
   id: number;
   title: string;
   color: string;
+  imageId?: number;
   kind?: "photo" | "object";
   position: [number, number, number];
   rotation: [number, number, number];
@@ -93,6 +95,14 @@ type BoxSpec = {
 type ZoneLabel = {
   label: string;
   position: [number, number, number];
+};
+type FloorPatchSpec = {
+  id: string;
+  color: string;
+  opacity: number;
+  position: [number, number];
+  scale: [number, number];
+  rotation?: number;
 };
 type GalleryCanvasProps = {
   dragMovedRef: MutableRefObject<boolean>;
@@ -125,29 +135,16 @@ function ContextLossMonitor({ setWebglLost }: { setWebglLost: (lost: boolean) =>
   return null;
 }
 
-const frames: FrameData[] = [
-  frame(1, [-4.8, 2.15, -15.72], [0, 0, 0]),
-  frame(2, [0, 2.15, -15.72], [0, 0, 0]),
-  frame(3, [4.8, 2.15, -15.72], [0, 0, 0]),
-  frame(4, [-17.2, 2.0, -15.72], [0, 0, 0], [2.2, 1.75]),
-  frame(5, [-12.8, 2.0, -15.72], [0, 0, 0], [2.2, 1.75]),
-  frame(6, [12.8, 2.0, -15.72], [0, 0, 0], [2.2, 1.75]),
-  frame(7, [17.2, 2.0, -15.72], [0, 0, 0], [2.2, 1.75]),
-  frame(8, [21.72, 1.85, -10.2], [0, -Math.PI / 2, 0], [2, 1.9]),
-  frame(9, [21.72, 1.85, 4.4], [0, -Math.PI / 2, 0], [2, 1.9]),
-  frame(10, [14.8, 1.82, 15.05], [0, Math.PI, 0], [2.9, 1.55]),
-  frame(11, [0, 1.78, -1.0], [0, 0, 0], [3, 1.45]),
-  frame(12, [0, 1.78, 7.0], [0, 0, 0], [3, 1.45]),
-  frame(13, [-21.72, 1.8, -11.6], [0, Math.PI / 2, 0], [2, 1.8]),
-  frame(14, [-21.72, 1.8, -6.0], [0, Math.PI / 2, 0], [2, 1.8]),
-  frame(15, [-15.5, 1.82, -1.2], [0, 0, 0], [3.4, 1.5]),
-  frame(16, [-21.72, 1.8, 6.0], [0, Math.PI / 2, 0], [2, 1.8]),
-  frame(17, [-21.72, 1.8, 11.4], [0, Math.PI / 2, 0], [2, 1.8]),
-  frame(18, [-15.5, 1.82, 15.05], [0, Math.PI, 0], [3.4, 1.5]),
-  frame(19, [12.6, 1.45, -11.0], [0, -0.25, 0], [1.65, 1.65], "object"),
-  frame(20, [15.6, 1.45, -2.2], [0, 0.2, 0], [1.65, 1.65], "object"),
-  frame(21, [12.2, 1.45, 10.3], [0, -0.1, 0], [1.65, 1.65], "object"),
-];
+const frames: FrameData[] = galleryFrameConfig.map((frameData) =>
+  frame(
+    frameData.id,
+    frameData.position,
+    frameData.rotation,
+    frameData.size,
+    frameData.kind ?? "photo",
+    frameData.imageId,
+  ),
+);
 
 const wallBoxes: BoxSpec[] = [
   box("north-wall", [0, 1.75, -16], [44.5, 3.5, 0.55]),
@@ -180,17 +177,34 @@ const zoneLabels: ZoneLabel[] = [
   { label: "IN", position: [0, 0.06, 18.6] },
 ];
 
+const floorLightPatches: FloorPatchSpec[] = [
+  { id: "light-a-north", color: "#d6d0c5", opacity: 0.16, position: [0, -8.6], scale: [7.8, 3.0], rotation: 0.08 },
+  { id: "light-a-center", color: "#bbb7ae", opacity: 0.11, position: [1.4, 2.8], scale: [5.4, 7.8], rotation: -0.22 },
+  { id: "light-d-wall", color: "#c7c0b3", opacity: 0.13, position: [15.5, -3.2], scale: [6.2, 8.8], rotation: 0.28 },
+  { id: "light-bc-left", color: "#aaa69d", opacity: 0.1, position: [-16.8, 1.6], scale: [4.6, 13.2], rotation: -0.08 },
+];
+
+const floorShadowPatches: FloorPatchSpec[] = [
+  { id: "shadow-entry", color: "#1b1c1d", opacity: 0.24, position: [0, 15.0], scale: [9.5, 2.8], rotation: 0 },
+  { id: "shadow-left-panel", color: "#202123", opacity: 0.22, position: [-6.2, 2.6], scale: [2.4, 11.8], rotation: -0.04 },
+  { id: "shadow-right-panel", color: "#202123", opacity: 0.22, position: [6.2, 2.6], scale: [2.4, 11.8], rotation: 0.04 },
+  { id: "shadow-b-corner", color: "#171819", opacity: 0.2, position: [-17.7, -11.5], scale: [6.2, 4.2], rotation: 0.12 },
+  { id: "shadow-d-corner", color: "#171819", opacity: 0.18, position: [18.2, 11.8], scale: [6.6, 4.6], rotation: -0.18 },
+];
+
 function frame(
   id: number,
   position: [number, number, number],
   rotation: [number, number, number],
   size: [number, number] = [2.5, 1.75],
   kind: "photo" | "object" = "photo",
+  imageId: number | null = id,
 ): FrameData {
   return {
     id,
     title: `作品${id}`,
     color: palette[(id - 1) % palette.length],
+    imageId: imageId ?? undefined,
     kind,
     position,
     rotation,
@@ -341,24 +355,25 @@ function Room() {
     <group>
       <mesh rotation={[-Math.PI / 2, 0, 0]}>
         <planeGeometry args={[46, 36]} />
-        <meshStandardMaterial color="#ebe3d5" roughness={0.86} metalness={0.02} />
+        <meshStandardMaterial color="#5d6061" roughness={0.9} metalness={0.04} />
       </mesh>
       <mesh position={[0, -0.01, 0]} rotation={[-Math.PI / 2, 0, 0]}>
         <planeGeometry args={[44, 32.8]} />
-        <meshBasicMaterial color="#f3eee4" transparent opacity={0.9} />
+        <meshBasicMaterial color="#8a8d8c" transparent opacity={0.08} />
       </mesh>
+      <FloorMoodLayer />
       <mesh position={[0, 3.55, 0]} rotation={[Math.PI / 2, 0, 0]}>
         <planeGeometry args={[46, 36]} />
-        <meshStandardMaterial color="#f7f2e8" roughness={0.94} />
+        <meshStandardMaterial color="#8a857b" roughness={0.9} />
       </mesh>
       {[...wallBoxes, ...panelBoxes].map((wall) => (
         <WallBox key={wall.id} wall={wall} />
       ))}
       <mesh position={[0, 0.02, 17.95]} rotation={[-Math.PI / 2, 0, 0]}>
         <planeGeometry args={[4.9, 2.1]} />
-        <meshBasicMaterial color="#f2dfc2" transparent opacity={0.75} />
+        <meshBasicMaterial color="#9b9c98" transparent opacity={0.42} />
       </mesh>
-      <gridHelper args={[44, 22, "#d1c7b8", "#e8dfd1"]} position={[0, 0.03, 0]} />
+      <gridHelper args={[44, 22, "#3c3f40", "#6d7070"]} position={[0, 0.03, 0]} />
       {zoneLabels.map((zone) => (
         <ZoneMarker key={zone.label} zone={zone} />
       ))}
@@ -366,21 +381,141 @@ function Room() {
   );
 }
 
+function FloorMoodLayer() {
+  return (
+    <group>
+      {floorLightPatches.map((patch) => (
+        <FloorPatch key={patch.id} patch={patch} y={0.018} blending={THREE.AdditiveBlending} />
+      ))}
+      {floorShadowPatches.map((patch) => (
+        <FloorPatch key={patch.id} patch={patch} y={0.021} />
+      ))}
+    </group>
+  );
+}
+
+function FloorPatch({
+  blending,
+  patch,
+  y,
+}: {
+  blending?: THREE.Blending;
+  patch: FloorPatchSpec;
+  y: number;
+}) {
+  return (
+    <mesh
+      position={[patch.position[0], y, patch.position[1]]}
+      renderOrder={1}
+      rotation={[-Math.PI / 2, 0, patch.rotation ?? 0]}
+      scale={[patch.scale[0], patch.scale[1], 1]}
+    >
+      <circleGeometry args={[1, 72]} />
+      <meshBasicMaterial
+        blending={blending}
+        color={patch.color}
+        depthWrite={false}
+        toneMapped={false}
+        transparent
+        opacity={patch.opacity}
+      />
+    </mesh>
+  );
+}
+
 function ZoneMarker({ zone }: { zone: ZoneLabel }) {
   return (
     <mesh position={zone.position} rotation={[-Math.PI / 2, 0, 0]}>
       <ringGeometry args={[0.7, 0.75, 32]} />
-      <meshBasicMaterial color="#6f6253" transparent opacity={0.65} />
+      <meshBasicMaterial color="#2f2a22" transparent opacity={0.45} />
     </mesh>
   );
 }
 
 function WallBox({ wall }: { wall: BoxSpec }) {
+  const isStructureWall = !wall.color;
+
   return (
     <mesh position={wall.position}>
       <boxGeometry args={wall.size} />
-      <meshStandardMaterial color={wall.color ?? "#272727"} roughness={0.76} metalness={0.04} />
+      <meshStandardMaterial
+        color={wall.color ?? "#777b7b"}
+        emissive={isStructureWall ? "#242728" : "#000000"}
+        emissiveIntensity={isStructureWall ? 0.1 : 0}
+        metalness={0.02}
+        roughness={0.78}
+      />
     </mesh>
+  );
+}
+
+function TargetedSpotlight({
+  angle,
+  color,
+  distance,
+  intensity,
+  penumbra,
+  position,
+  target,
+}: {
+  angle: number;
+  color: string;
+  distance: number;
+  intensity: number;
+  penumbra: number;
+  position: [number, number, number];
+  target: [number, number, number];
+}) {
+  const lightRef = useRef<THREE.SpotLight>(null);
+  const targetRef = useRef<THREE.Group>(null);
+
+  useEffect(() => {
+    if (!lightRef.current || !targetRef.current) return;
+    lightRef.current.target = targetRef.current;
+    lightRef.current.target.updateMatrixWorld();
+  }, []);
+
+  return (
+    <>
+      <group ref={targetRef} position={target} />
+      <spotLight
+        ref={lightRef}
+        angle={angle}
+        color={color}
+        decay={1.6}
+        distance={distance}
+        intensity={intensity}
+        penumbra={penumbra}
+        position={position}
+      />
+    </>
+  );
+}
+
+function FrameSpotlight({ hasImage }: { hasImage: boolean }) {
+  const lightRef = useRef<THREE.SpotLight>(null);
+  const targetRef = useRef<THREE.Group>(null);
+
+  useEffect(() => {
+    if (!lightRef.current || !targetRef.current) return;
+    lightRef.current.target = targetRef.current;
+    lightRef.current.target.updateMatrixWorld();
+  }, []);
+
+  return (
+    <>
+      <group ref={targetRef} position={[0, 0, 0.04]} />
+      <spotLight
+        ref={lightRef}
+        angle={0.42}
+        color="#f3eee2"
+        decay={2}
+        distance={4.2}
+        intensity={hasImage ? 0.44 : 0.28}
+        penumbra={0.82}
+        position={[0, 0.28, 2.2]}
+      />
+    </>
   );
 }
 
@@ -413,25 +548,35 @@ function PhotoFrame({
   }
 
   const maxSize = frame.size ?? [2.5, 1.75];
-  const atlasItem = atlasItems[(frame.id - 1) % atlasItems.length];
-  const [width, height] = fitInsideAspect(maxSize, atlasItem.aspect);
+  const imageId = frame.imageId ?? null;
+  const atlasItem = imageId ? atlasItems[(imageId - 1) % atlasItems.length] : null;
+  const aspect = atlasItem?.aspect ?? maxSize[0] / maxSize[1];
+  const [width, height] = fitInsideAspect(maxSize, aspect);
 
   return (
     <group position={frame.position} rotation={frame.rotation}>
+      <FrameSpotlight hasImage={Boolean(atlasItem)} />
       <mesh position={[0, 0, -0.06]}>
         <boxGeometry args={[width + 0.34, height + 0.34, 0.16]} />
         <meshStandardMaterial color="#3a332b" roughness={0.48} metalness={0.18} />
       </mesh>
-      <AtlasPhotoPlane
-        dragMovedRef={dragMovedRef}
-        frame={frame}
-        forceVisible={selectedFrameId === frame.id}
-        item={atlasItem}
-        selectFrame={selectFrame}
-        texture={atlasTexture}
-        width={width}
-        height={height}
-      />
+      {atlasItem ? (
+        <AtlasPhotoPlane
+          dragMovedRef={dragMovedRef}
+          frame={frame}
+          forceVisible={selectedFrameId === frame.id}
+          item={atlasItem}
+          selectFrame={selectFrame}
+          texture={atlasTexture}
+          width={width}
+          height={height}
+        />
+      ) : (
+        <mesh position={[0, 0, 0.03]}>
+          <planeGeometry args={[width, height]} />
+          <meshBasicMaterial color="#efe7da" />
+        </mesh>
+      )}
       <mesh position={[0, -height / 2 - 0.26, 0.07]}>
         <planeGeometry args={[0.58, 0.12]} />
         <meshBasicMaterial color="#11100c" />
@@ -495,6 +640,7 @@ function AtlasPhotoPlane({
     (event: ThreeEvent<MouseEvent>) => {
       event.stopPropagation();
       if (dragMovedRef.current) return;
+      if (!frame.imageId) return;
       selectFrame(frame);
     },
     [dragMovedRef, frame, selectFrame],
@@ -543,13 +689,20 @@ function GalleryScene({
   return (
     <>
       <color attach="background" args={["#05070a"]} />
-      <fog attach="fog" args={["#efe7da", 30, 72]} />
-      <ambientLight intensity={0.72} />
-      <directionalLight position={[0, 8, 8]} intensity={1.2} />
-      <pointLight position={[-16, 2.8, -8]} color="#fff3dc" intensity={1.7} distance={12} />
-      <pointLight position={[0, 3, -8]} color="#fff3dc" intensity={1.9} distance={18} />
-      <pointLight position={[15, 3, 2]} color="#fff3dc" intensity={1.8} distance={18} />
-      <pointLight position={[-16, 2.8, 8]} color="#fff3dc" intensity={1.5} distance={12} />
+      <fog attach="fog" args={["#151719", 24, 66]} />
+      <ambientLight color="#d8d4cc" intensity={0.42} />
+      <hemisphereLight args={["#f0e8dc", "#5c6264", 0.9]} />
+      <directionalLight position={[-7, 8, 10]} color="#ddd4c6" intensity={0.52} />
+      <pointLight position={[0, 3.25, 0]} color="#d8dcda" intensity={0.9} distance={34} decay={1.25} />
+      <pointLight position={[0, 3.15, 13]} color="#ddd6cc" intensity={0.64} distance={26} decay={1.35} />
+      <TargetedSpotlight angle={1.0} color="#ece4d8" distance={38} intensity={1.55} penumbra={0.98} position={[0, 2.9, 1]} target={[0, 1.8, -16]} />
+      <TargetedSpotlight angle={1.0} color="#d8d8d2" distance={38} intensity={1.25} penumbra={0.98} position={[0, 2.8, 2]} target={[0, 1.75, 16]} />
+      <TargetedSpotlight angle={0.98} color="#d5d7d3" distance={36} intensity={1.35} penumbra={0.98} position={[-3, 2.8, 0]} target={[-22, 1.75, 0]} />
+      <TargetedSpotlight angle={0.98} color="#ded4c4" distance={36} intensity={1.35} penumbra={0.98} position={[3, 2.8, 0]} target={[22, 1.75, 0]} />
+      <TargetedSpotlight angle={0.95} color="#d0d3d2" distance={22} intensity={0.62} penumbra={1} position={[0, 1.7, 0]} target={[0, 3.55, 0]} />
+      <TargetedSpotlight angle={0.55} color="#f0e6d8" distance={18} intensity={0.55} penumbra={0.85} position={[0, 3.4, -13]} target={[0, 1.8, -15.6]} />
+      <TargetedSpotlight angle={0.5} color="#e8d6bd" distance={15} intensity={0.42} penumbra={0.9} position={[16, 3.25, -7]} target={[21.7, 1.8, -3]} />
+      <TargetedSpotlight angle={0.52} color="#e2d8c7" distance={15} intensity={0.38} penumbra={0.85} position={[-16, 3.2, 2]} target={[-21.7, 1.8, 2]} />
       <Room />
       {frames.map((frame) => (
         <PhotoFrame
@@ -626,7 +779,8 @@ function MiniMap({ pose }: { pose: CameraPose }) {
 }
 
 function PhotoModal({ frame, onClose }: { frame: FrameData; onClose: () => void }) {
-  const photo = photoPreviews[(frame.id - 1) % photoPreviews.length];
+  const imageId = frame.imageId;
+  const photo = imageId ? photoPreviews[(imageId - 1) % photoPreviews.length] : undefined;
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -639,6 +793,8 @@ function PhotoModal({ frame, onClose }: { frame: FrameData; onClose: () => void 
       window.removeEventListener("keydown", onKeyDown);
     };
   }, [onClose]);
+
+  if (!photo) return null;
 
   return (
     <div
@@ -670,10 +826,10 @@ function PhotoModal({ frame, onClose }: { frame: FrameData; onClose: () => void 
           <img
             alt={frame.title}
             className="block max-h-[72vh] max-w-full object-contain"
-          decoding="async"
-          draggable={false}
-          src={photo.modalSrc}
-        />
+            decoding="async"
+            draggable={false}
+            src={photo.modalSrc}
+          />
         </div>
       </div>
     </div>
