@@ -28,11 +28,16 @@ const palette = [
 const CAMERA_HEIGHT = 1.68;
 const PLAYER_RADIUS = 0.55;
 const MAP_BOUNDS = { minX: -22.3, maxX: 22.3, minZ: -16.4, maxZ: 18.9 };
-const canvasGlConfig = { antialias: false, powerPreference: "low-power" as const };
+const canvasDprConfig = 1;
+const canvasGlConfig = {
+  alpha: false,
+  antialias: false,
+  powerPreference: "default" as const,
+  stencil: false,
+};
 const canvasCameraConfig = { position: [0, CAMERA_HEIGHT, 12] as [number, number, number], fov: 72, near: 0.1, far: 90 };
 const ATLAS_URL = "/photography/atlas/gallery-atlas-lod-1024-v2.jpg";
-const PHOTO_RENDER_DISTANCE = 15;
-const PHOTO_RENDER_DOT = 0.12;
+const PHOTO_RENDER_DOT = 0;
 const photoPreviews = [
   "20230225-_DSC7339-编辑.webp",
   "20230513-_DSC2435-编辑.webp",
@@ -85,6 +90,14 @@ type CameraPose = {
   z: number;
   rotation: number;
 };
+type ClickOrigin = {
+  x: number;
+  y: number;
+};
+type SelectedFrameState = {
+  frame: FrameData;
+  origin: ClickOrigin;
+};
 
 type BoxSpec = {
   id: string;
@@ -107,7 +120,7 @@ type FloorPatchSpec = {
 type GalleryCanvasProps = {
   dragMovedRef: MutableRefObject<boolean>;
   selectedFrameId: number | null;
-  selectFrame: (frame: FrameData) => void;
+  selectFrame: (frame: FrameData, origin: ClickOrigin) => void;
   setWebglLost: (lost: boolean) => void;
   reportPose: (pose: CameraPose) => void;
 };
@@ -234,12 +247,41 @@ function isWalkable(position: THREE.Vector3) {
 
 function PlayerController() {
   const [, getKeys] = useKeyboardControls();
+  const { invalidate } = useThree();
+  const forwardRef = useRef(new THREE.Vector3());
+  const rightRef = useRef(new THREE.Vector3());
+  const nextPositionRef = useRef(new THREE.Vector3());
+  const nextXRef = useRef(new THREE.Vector3());
+  const nextZRef = useRef(new THREE.Vector3());
+
+  useEffect(() => {
+    const movementKeys = new Set(moveMap.flatMap((item) => item.keys));
+    const requestFrame = (event: KeyboardEvent) => {
+      if (!movementKeys.has(event.code)) return;
+      invalidate();
+      window.requestAnimationFrame(() => invalidate());
+    };
+
+    window.addEventListener("keydown", requestFrame);
+    window.addEventListener("keyup", requestFrame);
+
+    return () => {
+      window.removeEventListener("keydown", requestFrame);
+      window.removeEventListener("keyup", requestFrame);
+    };
+  }, [invalidate]);
 
   useFrame((state, delta) => {
     const { camera } = state;
     const pressed = getKeys();
-    const forward = new THREE.Vector3();
-    const right = new THREE.Vector3();
+
+    if (!pressed.forward && !pressed.backward && !pressed.left && !pressed.right) return;
+
+    const forward = forwardRef.current;
+    const right = rightRef.current;
+    const nextPosition = nextPositionRef.current;
+    const nextX = nextXRef.current;
+    const nextZ = nextZRef.current;
 
     camera.getWorldDirection(forward);
     forward.y = 0;
@@ -247,25 +289,26 @@ function PlayerController() {
     right.crossVectors(forward, camera.up).normalize();
 
     const speed = 6.5 * delta;
-    const nextPosition = camera.position.clone();
+    nextPosition.copy(camera.position);
     if (pressed.forward) nextPosition.addScaledVector(forward, speed);
     if (pressed.backward) nextPosition.addScaledVector(forward, -speed);
     if (pressed.left) nextPosition.addScaledVector(right, -speed);
     if (pressed.right) nextPosition.addScaledVector(right, speed);
 
-    const nextX = new THREE.Vector3(nextPosition.x, CAMERA_HEIGHT, camera.position.z);
-    const nextZ = new THREE.Vector3(camera.position.x, CAMERA_HEIGHT, nextPosition.z);
+    nextX.set(nextPosition.x, CAMERA_HEIGHT, camera.position.z);
+    nextZ.set(camera.position.x, CAMERA_HEIGHT, nextPosition.z);
 
     if (isWalkable(nextX)) camera.position.x = nextX.x;
     if (isWalkable(nextZ)) camera.position.z = nextZ.z;
     camera.position.y = CAMERA_HEIGHT;
+    invalidate();
   });
 
   return null;
 }
 
 function DragLookControls({ dragMovedRef }: { dragMovedRef: MutableRefObject<boolean> }) {
-  const { camera, gl } = useThree();
+  const { camera, gl, invalidate } = useThree();
   const dragState = useRef({
     active: false,
     lastX: 0,
@@ -289,6 +332,7 @@ function DragLookControls({ dragMovedRef }: { dragMovedRef: MutableRefObject<boo
       dragState.current.yaw = camera.rotation.y;
       dragMovedRef.current = false;
       canvas.setPointerCapture?.(event.pointerId);
+      invalidate();
     };
 
     const onPointerMove = (event: PointerEvent) => {
@@ -310,6 +354,7 @@ function DragLookControls({ dragMovedRef }: { dragMovedRef: MutableRefObject<boo
         Math.PI / 2 - 0.08,
       );
       camera.rotation.set(dragState.current.pitch, dragState.current.yaw, 0, "YXZ");
+      invalidate();
     };
 
     const onPointerUp = (event: PointerEvent) => {
@@ -318,6 +363,7 @@ function DragLookControls({ dragMovedRef }: { dragMovedRef: MutableRefObject<boo
       window.setTimeout(() => {
         dragMovedRef.current = false;
       }, 120);
+      invalidate();
     };
 
     canvas.addEventListener("pointerdown", onPointerDown);
@@ -329,7 +375,7 @@ function DragLookControls({ dragMovedRef }: { dragMovedRef: MutableRefObject<boo
       window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("pointerup", onPointerUp);
     };
-  }, [camera, dragMovedRef, gl]);
+  }, [camera, dragMovedRef, gl, invalidate]);
 
   return null;
 }
@@ -355,7 +401,7 @@ function Room() {
     <group>
       <mesh rotation={[-Math.PI / 2, 0, 0]}>
         <planeGeometry args={[46, 36]} />
-        <meshStandardMaterial color="#5d6061" roughness={0.9} metalness={0.04} />
+        <meshLambertMaterial color="#5d6061" />
       </mesh>
       <mesh position={[0, -0.01, 0]} rotation={[-Math.PI / 2, 0, 0]}>
         <planeGeometry args={[44, 32.8]} />
@@ -364,7 +410,7 @@ function Room() {
       <FloorMoodLayer />
       <mesh position={[0, 3.55, 0]} rotation={[Math.PI / 2, 0, 0]}>
         <planeGeometry args={[46, 36]} />
-        <meshStandardMaterial color="#8a857b" roughness={0.9} />
+        <meshLambertMaterial color="#8a857b" />
       </mesh>
       {[...wallBoxes, ...panelBoxes].map((wall) => (
         <WallBox key={wall.id} wall={wall} />
@@ -410,7 +456,7 @@ function FloorPatch({
       rotation={[-Math.PI / 2, 0, patch.rotation ?? 0]}
       scale={[patch.scale[0], patch.scale[1], 1]}
     >
-      <circleGeometry args={[1, 72]} />
+      <circleGeometry args={[1, 48]} />
       <meshBasicMaterial
         blending={blending}
         color={patch.color}
@@ -438,84 +484,36 @@ function WallBox({ wall }: { wall: BoxSpec }) {
   return (
     <mesh position={wall.position}>
       <boxGeometry args={wall.size} />
-      <meshStandardMaterial
+      <meshLambertMaterial
         color={wall.color ?? "#777b7b"}
         emissive={isStructureWall ? "#242728" : "#000000"}
         emissiveIntensity={isStructureWall ? 0.1 : 0}
-        metalness={0.02}
-        roughness={0.78}
       />
     </mesh>
   );
 }
 
-function TargetedSpotlight({
-  angle,
-  color,
-  distance,
-  intensity,
-  penumbra,
-  position,
-  target,
+function FrameLightWash({
+  hasImage,
+  height,
+  width,
 }: {
-  angle: number;
-  color: string;
-  distance: number;
-  intensity: number;
-  penumbra: number;
-  position: [number, number, number];
-  target: [number, number, number];
+  hasImage: boolean;
+  height: number;
+  width: number;
 }) {
-  const lightRef = useRef<THREE.SpotLight>(null);
-  const targetRef = useRef<THREE.Group>(null);
-
-  useEffect(() => {
-    if (!lightRef.current || !targetRef.current) return;
-    lightRef.current.target = targetRef.current;
-    lightRef.current.target.updateMatrixWorld();
-  }, []);
-
   return (
-    <>
-      <group ref={targetRef} position={target} />
-      <spotLight
-        ref={lightRef}
-        angle={angle}
-        color={color}
-        decay={1.6}
-        distance={distance}
-        intensity={intensity}
-        penumbra={penumbra}
-        position={position}
+    <mesh position={[0, 0.08, 0.015]} renderOrder={0}>
+      <planeGeometry args={[width + 0.72, height + 0.72]} />
+      <meshBasicMaterial
+        blending={THREE.AdditiveBlending}
+        color="#efe8dc"
+        depthWrite={false}
+        opacity={hasImage ? 0.09 : 0.04}
+        toneMapped={false}
+        transparent
       />
-    </>
-  );
-}
-
-function FrameSpotlight({ hasImage }: { hasImage: boolean }) {
-  const lightRef = useRef<THREE.SpotLight>(null);
-  const targetRef = useRef<THREE.Group>(null);
-
-  useEffect(() => {
-    if (!lightRef.current || !targetRef.current) return;
-    lightRef.current.target = targetRef.current;
-    lightRef.current.target.updateMatrixWorld();
-  }, []);
-
-  return (
-    <>
-      <group ref={targetRef} position={[0, 0, 0.04]} />
-      <spotLight
-        ref={lightRef}
-        angle={0.42}
-        color="#f3eee2"
-        decay={2}
-        distance={4.2}
-        intensity={hasImage ? 0.44 : 0.28}
-        penumbra={0.82}
-        position={[0, 0.28, 2.2]}
-      />
-    </>
+    </mesh>
   );
 }
 
@@ -530,18 +528,18 @@ function PhotoFrame({
   dragMovedRef: MutableRefObject<boolean>;
   frame: FrameData;
   selectedFrameId: number | null;
-  selectFrame: (frame: FrameData) => void;
+  selectFrame: (frame: FrameData, origin: ClickOrigin) => void;
 }) {
   if (frame.kind === "object") {
     return (
       <group position={frame.position} rotation={frame.rotation}>
         <mesh position={[0, -0.55, 0]}>
           <boxGeometry args={[1.45, 0.34, 1.45]} />
-          <meshStandardMaterial color="#f0ede6" roughness={0.58} metalness={0.05} />
+          <meshLambertMaterial color="#f0ede6" />
         </mesh>
         <mesh>
-          <sphereGeometry args={[0.48, 32, 18]} />
-          <meshStandardMaterial color={frame.color} roughness={0.42} metalness={0.24} />
+          <sphereGeometry args={[0.48, 20, 12]} />
+          <meshLambertMaterial color={frame.color} emissive={frame.color} emissiveIntensity={0.08} />
         </mesh>
       </group>
     );
@@ -555,10 +553,10 @@ function PhotoFrame({
 
   return (
     <group position={frame.position} rotation={frame.rotation}>
-      <FrameSpotlight hasImage={Boolean(atlasItem)} />
+      <FrameLightWash hasImage={Boolean(atlasItem)} width={width} height={height} />
       <mesh position={[0, 0, -0.06]}>
         <boxGeometry args={[width + 0.34, height + 0.34, 0.16]} />
-        <meshStandardMaterial color="#3a332b" roughness={0.48} metalness={0.18} />
+        <meshLambertMaterial color="#3a332b" />
       </mesh>
       {atlasItem ? (
         <AtlasPhotoPlane
@@ -608,11 +606,14 @@ function AtlasPhotoPlane({
   frame: FrameData;
   height: number;
   item: (typeof atlasItems)[number];
-  selectFrame: (frame: FrameData) => void;
+  selectFrame: (frame: FrameData, origin: ClickOrigin) => void;
   texture: THREE.Texture;
   width: number;
 }) {
   const meshRef = useRef<THREE.Mesh>(null);
+  const framePositionRef = useRef(new THREE.Vector3(...frame.position));
+  const toFrameRef = useRef(new THREE.Vector3());
+  const cameraForwardRef = useRef(new THREE.Vector3());
   const geometry = useMemo(() => {
     const photoGeometry = new THREE.PlaneGeometry(width, height);
 
@@ -641,7 +642,7 @@ function AtlasPhotoPlane({
       event.stopPropagation();
       if (dragMovedRef.current) return;
       if (!frame.imageId) return;
-      selectFrame(frame);
+      selectFrame(frame, { x: event.nativeEvent.clientX, y: event.nativeEvent.clientY });
     },
     [dragMovedRef, frame, selectFrame],
   );
@@ -649,15 +650,12 @@ function AtlasPhotoPlane({
   useFrame(({ camera }) => {
     if (!meshRef.current) return;
 
-    const framePosition = new THREE.Vector3(...frame.position);
-    const toFrame = framePosition.sub(camera.position);
-    const distance = toFrame.length();
-    const cameraForward = new THREE.Vector3();
+    const toFrame = toFrameRef.current.copy(framePositionRef.current).sub(camera.position);
+    const cameraForward = cameraForwardRef.current;
     camera.getWorldDirection(cameraForward);
     const viewDot = cameraForward.dot(toFrame.normalize());
 
-    meshRef.current.visible =
-      forceVisible || (distance <= PHOTO_RENDER_DISTANCE && viewDot >= PHOTO_RENDER_DOT);
+    meshRef.current.visible = forceVisible || viewDot >= PHOTO_RENDER_DOT;
   });
 
   return (
@@ -676,33 +674,25 @@ function GalleryScene({
   dragMovedRef: MutableRefObject<boolean>;
   reportPose: (pose: CameraPose) => void;
   selectedFrameId: number | null;
-  selectFrame: (frame: FrameData) => void;
+  selectFrame: (frame: FrameData, origin: ClickOrigin) => void;
 }) {
   const atlasTexture = useTexture(ATLAS_URL);
 
   atlasTexture.colorSpace = THREE.SRGBColorSpace;
-  atlasTexture.anisotropy = 2;
+  atlasTexture.anisotropy = 4;
   atlasTexture.generateMipmaps = true;
-  atlasTexture.minFilter = THREE.LinearFilter;
+  atlasTexture.minFilter = THREE.LinearMipmapLinearFilter;
   atlasTexture.magFilter = THREE.LinearFilter;
 
   return (
     <>
       <color attach="background" args={["#05070a"]} />
       <fog attach="fog" args={["#151719", 24, 66]} />
-      <ambientLight color="#d8d4cc" intensity={0.42} />
-      <hemisphereLight args={["#f0e8dc", "#5c6264", 0.9]} />
-      <directionalLight position={[-7, 8, 10]} color="#ddd4c6" intensity={0.52} />
-      <pointLight position={[0, 3.25, 0]} color="#d8dcda" intensity={0.9} distance={34} decay={1.25} />
-      <pointLight position={[0, 3.15, 13]} color="#ddd6cc" intensity={0.64} distance={26} decay={1.35} />
-      <TargetedSpotlight angle={1.0} color="#ece4d8" distance={38} intensity={1.55} penumbra={0.98} position={[0, 2.9, 1]} target={[0, 1.8, -16]} />
-      <TargetedSpotlight angle={1.0} color="#d8d8d2" distance={38} intensity={1.25} penumbra={0.98} position={[0, 2.8, 2]} target={[0, 1.75, 16]} />
-      <TargetedSpotlight angle={0.98} color="#d5d7d3" distance={36} intensity={1.35} penumbra={0.98} position={[-3, 2.8, 0]} target={[-22, 1.75, 0]} />
-      <TargetedSpotlight angle={0.98} color="#ded4c4" distance={36} intensity={1.35} penumbra={0.98} position={[3, 2.8, 0]} target={[22, 1.75, 0]} />
-      <TargetedSpotlight angle={0.95} color="#d0d3d2" distance={22} intensity={0.62} penumbra={1} position={[0, 1.7, 0]} target={[0, 3.55, 0]} />
-      <TargetedSpotlight angle={0.55} color="#f0e6d8" distance={18} intensity={0.55} penumbra={0.85} position={[0, 3.4, -13]} target={[0, 1.8, -15.6]} />
-      <TargetedSpotlight angle={0.5} color="#e8d6bd" distance={15} intensity={0.42} penumbra={0.9} position={[16, 3.25, -7]} target={[21.7, 1.8, -3]} />
-      <TargetedSpotlight angle={0.52} color="#e2d8c7" distance={15} intensity={0.38} penumbra={0.85} position={[-16, 3.2, 2]} target={[-21.7, 1.8, 2]} />
+      <ambientLight color="#d8d4cc" intensity={0.58} />
+      <hemisphereLight args={["#f0e8dc", "#5c6264", 0.85]} />
+      <directionalLight position={[-7, 8, 10]} color="#ddd4c6" intensity={0.45} />
+      <pointLight position={[0, 3.25, 0]} color="#d8dcda" intensity={0.62} distance={30} decay={1.35} />
+      <pointLight position={[0, 3.15, 13]} color="#ddd6cc" intensity={0.42} distance={22} decay={1.45} />
       <Room />
       {frames.map((frame) => (
         <PhotoFrame
@@ -778,9 +768,21 @@ function MiniMap({ pose }: { pose: CameraPose }) {
   );
 }
 
-function PhotoModal({ frame, onClose }: { frame: FrameData; onClose: () => void }) {
+function PhotoModal({
+  frame,
+  onClose,
+  origin,
+}: {
+  frame: FrameData;
+  onClose: () => void;
+  origin: ClickOrigin;
+}) {
   const imageId = frame.imageId;
   const photo = imageId ? photoPreviews[(imageId - 1) % photoPreviews.length] : undefined;
+  const originStyle = {
+    animation: "galleryModalZoomIn 520ms cubic-bezier(0.16, 1, 0.3, 1) both",
+    transformOrigin: `${origin.x}px ${origin.y}px`,
+  };
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -798,40 +800,90 @@ function PhotoModal({ frame, onClose }: { frame: FrameData; onClose: () => void 
 
   return (
     <div
-      className="absolute inset-0 z-30 grid place-items-center bg-black/85 p-5"
+      className="absolute inset-0 z-30 bg-black/62 animate-[galleryModalFadeIn_360ms_ease-out_both]"
       onClick={onClose}
       role="dialog"
       aria-modal="true"
       aria-label={`${frame.title} 放大预览`}
     >
       <div
-        className="flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-[2rem] bg-[#f4eddf] p-3 text-[#11100c]"
-        onClick={(event) => event.stopPropagation()}
+        className="absolute inset-0 grid place-items-center p-5"
+        style={originStyle}
       >
-        <div className="mb-3 flex items-center justify-between gap-4 px-2">
-          <div>
-            <p className="text-xs font-black tracking-[0.28em] text-[#6f6253]">PHOTO PREVIEW</p>
-            <h3 className="mt-1 text-xl font-bold">{frame.title}</h3>
+        <div
+          className="flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-[2rem] bg-[#f4eddf] p-3 text-[#11100c] shadow-[0_32px_90px_rgba(0,0,0,0.55)] animate-[galleryModalCardIn_620ms_cubic-bezier(0.16,1,0.3,1)_both]"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="mb-3 flex items-center justify-between gap-4 px-2">
+            <div>
+              <p className="text-xs font-black tracking-[0.28em] text-[#6f6253]">PHOTO PREVIEW</p>
+              <h3 className="mt-1 text-xl font-bold">{frame.title}</h3>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-full bg-[#11100c] px-4 py-2 text-sm font-bold text-[#f4eddf] transition hover:bg-[#ff5d2a]"
+            >
+              关闭
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-full bg-[#11100c] px-4 py-2 text-sm font-bold text-[#f4eddf] transition hover:bg-[#ff5d2a]"
-          >
-            关闭
-          </button>
-        </div>
-        <div className="grid min-h-0 flex-1 place-items-center overflow-hidden rounded-[1.4rem] bg-[#11100c]">
-          {/* eslint-disable-next-line @next/next/no-img-element -- Modal preview uses generated static thumbnails. */}
-          <img
-            alt={frame.title}
-            className="block max-h-[72vh] max-w-full object-contain"
-            decoding="async"
-            draggable={false}
-            src={photo.modalSrc}
-          />
+          <div className="grid min-h-0 flex-1 place-items-center overflow-hidden rounded-[1.4rem] bg-[#11100c]">
+            {/* eslint-disable-next-line @next/next/no-img-element -- Modal preview uses generated static thumbnails. */}
+            <img
+              alt={frame.title}
+              className="block max-h-[72vh] max-w-full object-contain"
+              decoding="async"
+              draggable={false}
+              src={photo.modalSrc}
+            />
+          </div>
         </div>
       </div>
+      <style jsx global>{`
+        @keyframes galleryModalFadeIn {
+          from {
+            opacity: 0;
+          }
+          to {
+            opacity: 1;
+          }
+        }
+
+        @keyframes galleryModalZoomIn {
+          0% {
+            opacity: 0;
+            filter: blur(10px);
+            transform: scale(0.18);
+          }
+          45% {
+            opacity: 1;
+            filter: blur(2px);
+            transform: scale(0.88);
+          }
+          72% {
+            transform: scale(1.015);
+          }
+          100% {
+            opacity: 1;
+            filter: blur(0);
+            transform: scale(1);
+          }
+        }
+
+        @keyframes galleryModalCardIn {
+          0% {
+            opacity: 0;
+            transform: translateY(18px);
+          }
+          45% {
+            opacity: 0.72;
+          }
+          100% {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+      `}</style>
     </div>
   );
 }
@@ -845,7 +897,7 @@ const GalleryCanvas = memo(function GalleryCanvas({
 }: GalleryCanvasProps) {
   return (
     <KeyboardControls map={moveMap}>
-      <Canvas dpr={1} gl={canvasGlConfig} camera={canvasCameraConfig}>
+      <Canvas dpr={canvasDprConfig} frameloop="demand" gl={canvasGlConfig} camera={canvasCameraConfig}>
         <ContextLossMonitor setWebglLost={setWebglLost} />
         <GalleryScene
           dragMovedRef={dragMovedRef}
@@ -861,13 +913,13 @@ const GalleryCanvas = memo(function GalleryCanvas({
 export default function GalleryExperience() {
   const [cameraPose, setCameraPose] = useState<CameraPose>({ x: 0, z: 12, rotation: 0 });
   const [webglLost, setWebglLost] = useState(false);
-  const [selectedFrame, setSelectedFrame] = useState<FrameData | null>(null);
+  const [selectedFrame, setSelectedFrame] = useState<SelectedFrameState | null>(null);
   const dragMovedRef = useRef(false);
   const reportPose = useCallback((pose: CameraPose) => {
     setCameraPose(pose);
   }, []);
-  const selectFrame = useCallback((frameData: FrameData) => {
-    setSelectedFrame(frameData);
+  const selectFrame = useCallback((frameData: FrameData, origin: ClickOrigin) => {
+    setSelectedFrame({ frame: frameData, origin });
   }, []);
 
   return (
@@ -878,7 +930,7 @@ export default function GalleryExperience() {
       <GalleryCanvas
         dragMovedRef={dragMovedRef}
         reportPose={reportPose}
-        selectedFrameId={selectedFrame?.id ?? null}
+        selectedFrameId={selectedFrame?.frame.id ?? null}
         selectFrame={selectFrame}
         setWebglLost={setWebglLost}
       />
@@ -893,7 +945,13 @@ export default function GalleryExperience() {
           </div>
         </div>
       ) : null}
-      {selectedFrame ? <PhotoModal frame={selectedFrame} onClose={() => setSelectedFrame(null)} /> : null}
+      {selectedFrame ? (
+        <PhotoModal
+          frame={selectedFrame.frame}
+          origin={selectedFrame.origin}
+          onClose={() => setSelectedFrame(null)}
+        />
+      ) : null}
     </div>
   );
 }
