@@ -1,9 +1,21 @@
+import type { CSSProperties } from "react";
+import { FrostedGlassPanel } from "@/components/FrostedGlassPanel";
 import { FlowTextCanvas } from "@/components/FlowTextCanvas";
+import { homeVisualConfig } from "@/components/homeVisualConfig";
 
 export default function Home() {
+  const homeStyle = {
+    "--home-canvas-bg": homeVisualConfig.canvas.backgroundColor,
+  } as CSSProperties;
+
   return (
-    <main className="min-h-screen overflow-hidden bg-[#1d1f20]">
-      <FlowTextCanvas className="h-screen w-screen" />
+    <main className="liquid-home h-screen overflow-hidden" style={homeStyle}>
+      <FlowTextCanvas
+        backgroundColor={homeVisualConfig.canvas.backgroundColor}
+        className="liquid-flow-canvas"
+        colorFlowSpeed={homeVisualConfig.flowText.colorSpeed}
+      />
+      <FrostedGlassPanel />
     </main>
   );
 }

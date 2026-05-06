@@ -9,7 +9,7 @@ const DPR_LIMIT = 1.5;
 // M 233.2 905.7 C 424.6 739.3, 512.9 589.2, 587.5 426.0 C 598.2 389.5, 579.8 379.2, 552.0 383.0 C 520.0 390.5, 518.1 409.2, 519.3 429.3 C 520.3 446.6, 548.8 509.2, 587.0 521.0 C 631.6 527.7, 677.7 466.4, 706.0 503.0 C 726.6 524.5, 597.7 802.7, 690.0 813.0 C 776.5 831.7, 886.1 587.6, 918.2 548.7 C 952.4 505.2, 976.8 467.0, 1029.4 465.6 C 1101.6 464.2, 1125.8 497.6, 1135.1 552.2 C 1140.6 616.1, 1133.4 817.2, 1007.0 817.0 C 881.8 806.3, 913.7 622.3, 916.7 592.2 C 921.2 573.5, 919.9 554.9, 935.5 544.3 C 969.7 535.4, 960.3 634.7, 1112.2 638.0 C 1202.8 643.3, 1231.3 486.0, 1288.0 485.0 C 1331.1 479.2, 1254.7 819.0, 1333.0 829.0 C 1389.7 821.7, 1472.0 471.4, 1493.9 469.2 C 1510.3 471.2, 1515.8 590.5, 1576.0 643.0 C 1620.0 677.7, 1756.4 669.8, 1777.0 622.4 C 1799.3 555.0, 1750.1 472.7, 1671.0 485.0 C 1594.1 500.6, 1591.9 594.0, 1594.0 669.0 C 1602.5 749.6, 1626.1 824.8, 1698.1 827.4 C 1760.5 827.1, 1808.5 798.3, 1856.3 734.2 C 1895.0 697.2, 2036.7 448.6, 2099.2 337.8 C 2133.7 281.3, 2156.9 203.9, 2116.2 208.5 C 2015.1 225.1, 1838.1 806.7, 1946.6 816.2 C 2032.5 837.7, 2110.6 690.7, 2141.5 640.7 C 2171.7 588.6, 2188.7 568.4, 2206.9 550.5 C 2233.0 533.2, 2274.7 512.9, 2298.7 520.2 C 2278.8 528.4, 2236.4 519.9, 2188.3 575.8 C 2125.5 658.3, 2054.5 807.0, 2170.8 815.9 C 2273.2 825.5, 2336.1 553.6, 2317.4 534.8 C 2310.1 527.8, 2302.4 530.2, 2296.8 544.3 C 2285.8 562.0, 2248.4 828.0, 2350.1 816.8 C 2440.5 822.8, 2574.3 555.4, 2565.8 511.6 C 2564.7 484.8, 2534.8 494.1, 2522.3 529.2 C 2498.8 653.9, 2653.4 761.5, 2593.3 805.3 C 2566.2 822.8, 2530.6 817.2, 2502.3 804.3 C 2479.4 784.1, 2496.5 747.6, 2523.3 742.3 C 2590.0 727.1, 2614.3 758.0, 2671.3 740.3 C 2757.7 732.5, 2920.6 250.7, 2901.2 221.5 C 2899.5 201.5, 2866.0 199.4, 2858.6 231.6 C 2840.0 250.9, 2733.2 739.8, 2792.3 795.4 C 2843.0 843.0, 2928.7 810.3, 3008.2 737.9
 const FLOW_STROKES = [
   {
-    start: { x: 1202.9, y: 144.5 },
+    start: { x: 1182.9, y: 144.5 },
     segments: ["1244.0,136.6,1290.6,133.8,1326.0,131.9"],
   },
   {
@@ -130,7 +130,15 @@ function createPoints(scale: number, xAdjust: number): FlowPoint[] {
   );
 }
 
-export function FlowTextCanvas({ className = "" }: { className?: string }) {
+export function FlowTextCanvas({
+  backgroundColor = "transparent",
+  className = "",
+  colorFlowSpeed = 3,
+}: {
+  backgroundColor?: string;
+  className?: string;
+  colorFlowSpeed?: number;
+}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -147,6 +155,7 @@ export function FlowTextCanvas({ className = "" }: { className?: string }) {
     let points: FlowPoint[] = [];
     let scale = 1;
     let width = 0;
+    const flowSpeed = Math.max(1, colorFlowSpeed);
     const segment = Math.floor((CIRCLES_PER_SEGMENT * POINT_COUNT) / colors.length) / 2;
     const colorCycleLength = segment * colors.length;
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -187,6 +196,10 @@ export function FlowTextCanvas({ className = "" }: { className?: string }) {
 
     const draw = () => {
       context.clearRect(0, 0, width, height);
+      if (backgroundColor !== "transparent") {
+        context.fillStyle = backgroundColor;
+        context.fillRect(0, 0, width, height);
+      }
       context.globalAlpha = 1;
       context.globalCompositeOperation = "source-over";
 
@@ -233,7 +246,7 @@ export function FlowTextCanvas({ className = "" }: { className?: string }) {
         point.countY += (Math.random() * 100) * point.invert;
       }
 
-      if (!reducedMotion) colorOffset = (colorOffset - 3 + colorCycleLength) % colorCycleLength;
+      colorOffset = (colorOffset - flowSpeed + colorCycleLength) % colorCycleLength;
       animationFrame = window.requestAnimationFrame(draw);
     };
 
@@ -247,7 +260,7 @@ export function FlowTextCanvas({ className = "" }: { className?: string }) {
       observer.disconnect();
       window.cancelAnimationFrame(animationFrame);
     };
-  }, []);
+  }, [backgroundColor, colorFlowSpeed]);
 
   return <canvas ref={canvasRef} aria-hidden="true" className={className} />;
 }
