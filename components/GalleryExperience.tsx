@@ -758,7 +758,7 @@ function MiniMap({ pose }: { pose: CameraPose }) {
           className="absolute h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-[#ff5d2a] shadow-[0_0_18px_rgba(255,93,42,0.9)]"
           style={{
             ...toMapPosition(pose.x, pose.z),
-            transform: `translate(-50%, -50%) rotate(${pose.rotation}rad)`,
+            transform: `translate(-50%, -50%) rotate(${-pose.rotation}rad)`,
           }}
         >
           <span className="absolute left-1/2 top-[-8px] h-3 w-0.5 -translate-x-1/2 rounded-full bg-[#ff5d2a]" />
