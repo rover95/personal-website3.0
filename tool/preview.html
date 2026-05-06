@@ -1,0 +1,1749 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bezier Pen Tool Exporter</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC",
+        "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      background: #1d1f20;
+      color: #f3f3f3;
+    }
+
+    button,
+    textarea,
+    input {
+      font: inherit;
+    }
+
+    .app {
+      display: flex;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    .left {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      border-right: 1px solid #333;
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 10px 12px;
+      background: #26292b;
+      border-bottom: 1px solid #333;
+      align-items: center;
+    }
+
+    .toolbar-group {
+      display: flex;
+      gap: 6px;
+      padding-right: 10px;
+      margin-right: 4px;
+      border-right: 1px solid #3a3f43;
+    }
+
+    button {
+      border: none;
+      background: #444b52;
+      color: #fff;
+      padding: 7px 12px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    button:hover {
+      opacity: 0.9;
+    }
+
+    button.primary {
+      background: #3a82f6;
+    }
+
+    button.success {
+      background: #16a34a;
+    }
+
+    button.danger {
+      background: #dc2626;
+    }
+
+    button.active {
+      background: #f59e0b;
+      color: #111827;
+      font-weight: 700;
+    }
+
+    .hint {
+      color: #c8c8c8;
+      font-size: 12px;
+      line-height: 1.5;
+      padding-left: 2px;
+    }
+
+    .stage-wrap {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+      background:
+        linear-gradient(to right, rgba(255,255,255,0.045) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255,255,255,0.045) 1px, transparent 1px),
+        #1d1f20;
+      background-size: 24px 24px, 24px 24px, auto;
+    }
+
+    svg#stage {
+      width: 100%;
+      height: 100%;
+      display: block;
+      cursor: crosshair;
+      user-select: none;
+    }
+
+    svg#stage.mode-select {
+      cursor: default;
+    }
+
+    svg#stage.mode-pan {
+      cursor: grab;
+    }
+
+    svg#stage.panning {
+      cursor: grabbing;
+    }
+
+    .hud {
+      position: absolute;
+      left: 12px;
+      bottom: 12px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      background: rgba(0, 0, 0, 0.48);
+      border: 1px solid rgba(255,255,255,0.12);
+      color: #d6d6d6;
+      font-size: 12px;
+      line-height: 1.6;
+      pointer-events: none;
+      min-width: 190px;
+    }
+
+    .right {
+      width: 440px;
+      display: flex;
+      flex-direction: column;
+      background: #202325;
+    }
+
+    .panel {
+      padding: 12px 14px;
+      border-bottom: 1px solid #333;
+    }
+
+    .panel h3 {
+      margin: 0 0 8px;
+      font-size: 15px;
+      font-weight: 600;
+    }
+
+    .panel p {
+      margin: 6px 0;
+      font-size: 13px;
+      color: #c9c9c9;
+      line-height: 1.6;
+    }
+
+    code {
+      color: #a7f3d0;
+    }
+
+    .stats {
+      font-size: 13px;
+      color: #d8d8d8;
+      line-height: 1.8;
+      word-break: break-all;
+    }
+
+    textarea {
+      flex: 1;
+      width: 100%;
+      resize: none;
+      border: none;
+      outline: none;
+      background: #17191a;
+      color: #eaeaea;
+      padding: 14px;
+      font-size: 13px;
+      line-height: 1.6;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+
+    .footer-actions {
+      padding: 12px 14px;
+      border-top: 1px solid #333;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .main-path {
+      fill: none;
+      stroke: #5eead4;
+      stroke-width: 3;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      vector-effect: non-scaling-stroke;
+    }
+
+    .ghost-path {
+      fill: none;
+      stroke: rgba(94,234,212,0.16);
+      stroke-width: 12;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      vector-effect: non-scaling-stroke;
+    }
+
+    .helper-line {
+      stroke: rgba(255,255,255,0.28);
+      stroke-width: 1.5;
+      stroke-dasharray: 5 4;
+      vector-effect: non-scaling-stroke;
+    }
+
+    .anchor,
+    .control,
+    .start-point {
+      stroke: #fff;
+      stroke-width: 2;
+      vector-effect: non-scaling-stroke;
+      cursor: move;
+    }
+
+    .start-point {
+      fill: #ef4444;
+    }
+
+    .anchor {
+      fill: #f59e0b;
+    }
+
+    .control {
+      fill: #3b82f6;
+    }
+
+    .selected-point {
+      stroke: #fef08a;
+      stroke-width: 4;
+      filter: drop-shadow(0 0 5px rgba(250, 204, 21, 0.8));
+    }
+
+    .label {
+      fill: rgba(255,255,255,0.85);
+      pointer-events: none;
+      user-select: none;
+    }
+
+    .selection-rect {
+      fill: rgba(59, 130, 246, 0.12);
+      stroke: rgba(147, 197, 253, 0.9);
+      stroke-width: 1.5;
+      stroke-dasharray: 6 4;
+      vector-effect: non-scaling-stroke;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="left">
+      <div class="toolbar">
+        <div class="toolbar-group">
+          <button id="modePen" class="active">钢笔</button>
+          <button id="modeSelect">选择/框选</button>
+          <button id="modePan">平移</button>
+        </div>
+
+        <div class="toolbar-group">
+          <button id="btnZoomIn">放大</button>
+          <button id="btnZoomOut">缩小</button>
+          <button id="btnResetView">重置视图</button>
+        </div>
+
+        <div class="toolbar-group">
+          <button id="btnUndo">撤销最后一段</button>
+          <button id="btnClearSelection">取消选择</button>
+          <button id="btnClear" class="danger">清空</button>
+        </div>
+
+        <div class="toolbar-group">
+          <button id="btnExport" class="primary">导出当前路径</button>
+          <button id="btnSaveLocal" class="success">保存到本地缓存</button>
+          <button id="btnLoadLocal">从本地缓存加载</button>
+        </div>
+
+        <div class="hint">
+          滚轮缩放；中键/空格拖拽平移；选择模式下拖拽空白区域框选；选中多个点后拖任意选中点可整体移动。
+        </div>
+      </div>
+
+      <div class="stage-wrap">
+        <svg id="stage" class="mode-pen"></svg>
+        <div class="hud" id="hud"></div>
+      </div>
+    </div>
+
+    <div class="right">
+      <div class="panel">
+        <h3>当前路径信息</h3>
+        <div class="stats" id="stats">尚未创建路径</div>
+      </div>
+
+      <div class="panel">
+        <h3>导出结果</h3>
+        <p>导出格式为：<code>c1x,c1y,c2x,c2y,endX,endY&...</code></p>
+        <p>首段起点不在 <code>logo</code> 字符串内，因此额外输出 <code>firstStartX</code> / <code>firstStartY</code>。</p>
+      </div>
+
+      <textarea id="output" placeholder="点击“导出当前路径”后，这里会生成结果...\n也可以把之前导出的内容粘贴到这里，然后点击“从文本导入”。"></textarea>
+
+      <div class="footer-actions">
+        <button id="btnCopy" class="success">复制输出</button>
+        <button id="btnImportText">从文本导入</button>
+        <button id="btnLoadDemo">加载演示路径</button>
+        <button id="btnClearLocal" class="danger">清除本地缓存</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const svg = document.getElementById("stage");
+    const output = document.getElementById("output");
+    const stats = document.getElementById("stats");
+    const hud = document.getElementById("hud");
+
+    const modePen = document.getElementById("modePen");
+    const modeSelect = document.getElementById("modeSelect");
+    const modePan = document.getElementById("modePan");
+    const btnZoomIn = document.getElementById("btnZoomIn");
+    const btnZoomOut = document.getElementById("btnZoomOut");
+    const btnResetView = document.getElementById("btnResetView");
+    const btnUndo = document.getElementById("btnUndo");
+    const btnClearSelection = document.getElementById("btnClearSelection");
+    const btnClear = document.getElementById("btnClear");
+    const btnExport = document.getElementById("btnExport");
+    const btnSaveLocal = document.getElementById("btnSaveLocal");
+    const btnLoadLocal = document.getElementById("btnLoadLocal");
+    const btnCopy = document.getElementById("btnCopy");
+    const btnImportText = document.getElementById("btnImportText");
+    const btnLoadDemo = document.getElementById("btnLoadDemo");
+    const btnClearLocal = document.getElementById("btnClearLocal");
+
+    const SVG_NS = "http://www.w3.org/2000/svg";
+    const STORAGE_KEY = "bezier-pen-tool-path-cache-v2";
+
+    const state = {
+      mode: "pen", // pen | select | pan
+      startPoint: null, // { x, y }
+      segments: [], // [{ c1:{x,y}, c2:{x,y}, end:{x,y} }]
+      selectedKeys: new Set(),
+      view: {
+        zoom: 1,
+        panX: 0,
+        panY: 0
+      },
+      pointer: {
+        type: null, // group-drag | marquee | pan | pen-click
+        originWorld: null,
+        originScreen: null,
+        initialPoints: null,
+        additive: false,
+        moved: false
+      },
+      marquee: null,
+      spaceDown: false,
+      lastDragEndAt: 0,
+      status: ""
+    };
+
+    function createSVG(tag, attrs = {}) {
+      const el = document.createElementNS(SVG_NS, tag);
+      for (const [key, value] of Object.entries(attrs)) {
+        el.setAttribute(key, value);
+      }
+      return el;
+    }
+
+    function clonePoint(p) {
+      return { x: p.x, y: p.y };
+    }
+
+    function fmt(n) {
+      return Number(n).toFixed(1);
+    }
+
+    function setStatus(message) {
+      state.status = message || "";
+      updateHud();
+    }
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function getStageRect() {
+      return svg.getBoundingClientRect();
+    }
+
+    function screenPointFromEvent(evt) {
+      const rect = getStageRect();
+      return {
+        x: evt.clientX - rect.left,
+        y: evt.clientY - rect.top
+      };
+    }
+
+    function screenToWorldFromScreen(screen) {
+      const { zoom, panX, panY } = state.view;
+      return {
+        x: (screen.x - panX) / zoom,
+        y: (screen.y - panY) / zoom
+      };
+    }
+
+    function screenToWorld(evt) {
+      return screenToWorldFromScreen(screenPointFromEvent(evt));
+    }
+
+    function keyOf(type, index) {
+      return `${type}:${index}`;
+    }
+
+    function parseKey(key) {
+      const [type, index] = key.split(":");
+      return { type, index: Number(index) };
+    }
+
+    function getPointByKey(key) {
+      const { type, index } = parseKey(key);
+
+      if (type === "start") return state.startPoint;
+      const seg = state.segments[index];
+      if (!seg) return null;
+
+      if (type === "c1") return seg.c1;
+      if (type === "c2") return seg.c2;
+      if (type === "end") return seg.end;
+      return null;
+    }
+
+    function getAllHandles() {
+      const handles = [];
+
+      if (state.startPoint) {
+        handles.push({
+          key: keyOf("start", -1),
+          type: "start",
+          index: -1,
+          point: state.startPoint,
+          label: "start"
+        });
+      }
+
+      state.segments.forEach((seg, index) => {
+        handles.push({ key: keyOf("c1", index), type: "c1", index, point: seg.c1, label: `c1-${index}` });
+        handles.push({ key: keyOf("c2", index), type: "c2", index, point: seg.c2, label: `c2-${index}` });
+        handles.push({ key: keyOf("end", index), type: "end", index, point: seg.end, label: `end-${index}` });
+      });
+
+      return handles;
+    }
+
+    function getSegmentStart(index) {
+      if (index === 0) return state.startPoint;
+      return state.segments[index - 1].end;
+    }
+
+    function currentEndPoint() {
+      if (state.segments.length > 0) {
+        return state.segments[state.segments.length - 1].end;
+      }
+      return state.startPoint;
+    }
+
+    function buildPathD() {
+      if (!state.startPoint) return "";
+
+      let d = `M ${fmt(state.startPoint.x)} ${fmt(state.startPoint.y)}`;
+      for (const seg of state.segments) {
+        d += ` C ${fmt(seg.c1.x)} ${fmt(seg.c1.y)}, ${fmt(seg.c2.x)} ${fmt(seg.c2.y)}, ${fmt(seg.end.x)} ${fmt(seg.end.y)}`;
+      }
+      return d;
+    }
+
+    function addSegment(endPoint) {
+      if (!state.startPoint) {
+        state.startPoint = clonePoint(endPoint);
+        state.selectedKeys = new Set([keyOf("start", -1)]);
+        setStatus("已设置起点");
+        render();
+        return;
+      }
+
+      const start = currentEndPoint();
+      const dx = endPoint.x - start.x;
+      const dy = endPoint.y - start.y;
+
+      const seg = {
+        c1: {
+          x: start.x + dx / 3,
+          y: start.y + dy / 3
+        },
+        c2: {
+          x: start.x + (dx * 2) / 3,
+          y: start.y + (dy * 2) / 3
+        },
+        end: clonePoint(endPoint)
+      };
+
+      state.segments.push(seg);
+      state.selectedKeys = new Set([keyOf("end", state.segments.length - 1)]);
+      setStatus(`已新增第 ${state.segments.length} 段曲线`);
+      render();
+    }
+
+    function selectOnly(key) {
+      state.selectedKeys = new Set([key]);
+    }
+
+    function toggleSelection(key) {
+      if (state.selectedKeys.has(key)) {
+        state.selectedKeys.delete(key);
+      } else {
+        state.selectedKeys.add(key);
+      }
+    }
+
+    function clearSelection() {
+      state.selectedKeys.clear();
+      render();
+    }
+
+    function isPointInRect(point, rect) {
+      const minX = Math.min(rect.x1, rect.x2);
+      const maxX = Math.max(rect.x1, rect.x2);
+      const minY = Math.min(rect.y1, rect.y2);
+      const maxY = Math.max(rect.y1, rect.y2);
+
+      return point.x >= minX && point.x <= maxX && point.y >= minY && point.y <= maxY;
+    }
+
+    function createSelectionSnapshot(keys) {
+      const map = new Map();
+      keys.forEach(key => {
+        const point = getPointByKey(key);
+        if (point) {
+          map.set(key, { x: point.x, y: point.y });
+        }
+      });
+      return map;
+    }
+
+    function applyGroupDrag(deltaX, deltaY) {
+      const snapshot = state.pointer.initialPoints;
+      if (!snapshot) return;
+
+      snapshot.forEach((initial, key) => {
+        const point = getPointByKey(key);
+        if (!point) return;
+        point.x = initial.x + deltaX;
+        point.y = initial.y + deltaY;
+      });
+    }
+
+    function updateMarqueeSelection() {
+      if (!state.marquee) return;
+
+      const next = state.pointer.additive
+        ? new Set(state.pointer.initialSelection || [])
+        : new Set();
+
+      getAllHandles().forEach(handle => {
+        if (isPointInRect(handle.point, state.marquee)) {
+          next.add(handle.key);
+        }
+      });
+
+      state.selectedKeys = next;
+    }
+
+    function setMode(mode) {
+      state.mode = mode;
+
+      modePen.classList.toggle("active", mode === "pen");
+      modeSelect.classList.toggle("active", mode === "select");
+      modePan.classList.toggle("active", mode === "pan");
+
+      svg.classList.toggle("mode-pen", mode === "pen");
+      svg.classList.toggle("mode-select", mode === "select");
+      svg.classList.toggle("mode-pan", mode === "pan");
+
+      setStatus(mode === "pen" ? "钢笔模式：点击空白区域新增曲线段" : mode === "select" ? "选择模式：拖拽空白区域框选点" : "平移模式：拖动画布移动视图");
+    }
+
+    function zoomAtScreen(screen, factor) {
+      const oldZoom = state.view.zoom;
+      const nextZoom = clamp(oldZoom * factor, 0.15, 8);
+      const world = screenToWorldFromScreen(screen);
+
+      state.view.zoom = nextZoom;
+      state.view.panX = screen.x - world.x * nextZoom;
+      state.view.panY = screen.y - world.y * nextZoom;
+
+      render();
+    }
+
+    function zoomByButton(factor) {
+      const rect = getStageRect();
+      zoomAtScreen({ x: rect.width / 2, y: rect.height / 2 }, factor);
+    }
+
+    function resetView() {
+      state.view.zoom = 1;
+      state.view.panX = 0;
+      state.view.panY = 0;
+      render();
+    }
+
+    function exportPath({ silent = false } = {}) {
+      if (!state.startPoint || state.segments.length === 0) {
+        if (!silent) {
+          output.value = "请先绘制至少一段曲线。";
+        }
+        return "";
+      }
+
+      const logo = state.segments
+        .map(seg => [
+          fmt(seg.c1.x),
+          fmt(seg.c1.y),
+          fmt(seg.c2.x),
+          fmt(seg.c2.y),
+          fmt(seg.end.x),
+          fmt(seg.end.y)
+        ].join(","))
+        .join("&");
+
+      const text = [
+        `firstStartX = ${fmt(state.startPoint.x)};`,
+        `firstStartY = ${fmt(state.startPoint.y)};`,
+        `noPoints = ${state.segments.length};`,
+        ``,
+        `logo = "${logo}";`
+      ].join("\n");
+
+      if (!silent) {
+        output.value = text;
+        setStatus("已导出当前路径");
+      }
+
+      return text;
+    }
+
+    function saveLocal() {
+      const data = {
+        version: 2,
+        updatedAt: new Date().toISOString(),
+        startPoint: state.startPoint,
+        segments: state.segments,
+        view: state.view
+      };
+
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      setStatus("已保存到本地缓存 localStorage");
+    }
+
+    function loadLocal() {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) {
+        alert("本地缓存中没有已保存的路径。存储位置：localStorage");
+        return;
+      }
+
+      try {
+        const data = JSON.parse(raw);
+        state.startPoint = data.startPoint || null;
+        state.segments = Array.isArray(data.segments) ? data.segments : [];
+        state.view = data.view || { zoom: 1, panX: 0, panY: 0 };
+        state.selectedKeys.clear();
+        render();
+        exportPath();
+        setStatus(`已加载本地缓存：${data.updatedAt || "未知时间"}`);
+      } catch (error) {
+        alert("本地缓存解析失败，数据可能已损坏。请清除后重新保存。 ");
+      }
+    }
+
+    function clearLocal() {
+      localStorage.removeItem(STORAGE_KEY);
+      setStatus("已清除本地缓存");
+    }
+
+    function parseExportedText(text) {
+      const startXMatch = text.match(/firstStartX\s*=\s*(-?\d+(?:\.\d+)?)/);
+      const startYMatch = text.match(/firstStartY\s*=\s*(-?\d+(?:\.\d+)?)/);
+      const logoMatch = text.match(/logo\s*=\s*["']([^"']+)["']/);
+
+      if (!startXMatch || !startYMatch || !logoMatch) {
+        throw new Error("没有找到 firstStartX、firstStartY 或 logo。 ");
+      }
+
+      const startPoint = {
+        x: Number(startXMatch[1]),
+        y: Number(startYMatch[1])
+      };
+
+      const segments = logoMatch[1]
+        .split("&")
+        .filter(Boolean)
+        .map(chunk => {
+          const nums = chunk.split(",").map(Number);
+          if (nums.length !== 6 || nums.some(Number.isNaN)) {
+            throw new Error("logo 路径格式不正确。每段必须是 6 个数字。 ");
+          }
+          return {
+            c1: { x: nums[0], y: nums[1] },
+            c2: { x: nums[2], y: nums[3] },
+            end: { x: nums[4], y: nums[5] }
+          };
+        });
+
+      return { startPoint, segments };
+    }
+
+    function importFromText() {
+      try {
+        const parsed = parseExportedText(output.value);
+        state.startPoint = parsed.startPoint;
+        state.segments = parsed.segments;
+        state.selectedKeys.clear();
+        render();
+        setStatus("已从文本导入路径");
+      } catch (error) {
+        alert(`导入失败：${error.message}`);
+      }
+    }
+
+    function updateStats() {
+      if (!state.startPoint) {
+        stats.innerHTML = "尚未创建路径";
+        return;
+      }
+
+      const d = buildPathD();
+      stats.innerHTML = `
+        <div>起点：(${fmt(state.startPoint.x)}, ${fmt(state.startPoint.y)})</div>
+        <div>段数：${state.segments.length}</div>
+        <div>选中点数：${state.selectedKeys.size}</div>
+        <div>缩放：${Math.round(state.view.zoom * 100)}%</div>
+        <div>SVG Path：</div>
+        <div style="margin-top:6px; color:#bfe9df; word-break:break-all;">${escapeHtml(d)}</div>
+      `;
+    }
+
+    function updateHud() {
+      hud.innerHTML = `
+        <div>模式：${state.mode === "pen" ? "钢笔" : state.mode === "select" ? "选择/框选" : "平移"}</div>
+        <div>缩放：${Math.round(state.view.zoom * 100)}%</div>
+        <div>点数：${getAllHandles().length}，选中：${state.selectedKeys.size}</div>
+        <div>${escapeHtml(state.status || "滚轮缩放，中键/空格平移")}</div>
+      `;
+    }
+
+    function escapeHtml(str) {
+      return String(str)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;");
+    }
+
+    function drawHandle(layer, handle) {
+      const zoom = state.view.zoom;
+      const isSelected = state.selectedKeys.has(handle.key);
+      const r = handle.type === "c1" || handle.type === "c2" ? 6 / zoom : 7 / zoom;
+      const strokeWidth = isSelected ? 4 / zoom : 2 / zoom;
+      const className = [
+        handle.type === "start" ? "start-point" : handle.type === "end" ? "anchor" : "control",
+        isSelected ? "selected-point" : ""
+      ].filter(Boolean).join(" ");
+
+      const circle = createSVG("circle", {
+        cx: handle.point.x,
+        cy: handle.point.y,
+        r,
+        class: className,
+        "data-key": handle.key,
+        "stroke-width": strokeWidth
+      });
+      layer.appendChild(circle);
+
+      const label = createSVG("text", {
+        x: handle.point.x + 10 / zoom,
+        y: handle.point.y - 10 / zoom,
+        class: "label",
+        "font-size": 12 / zoom
+      });
+      label.textContent = handle.label;
+      layer.appendChild(label);
+    }
+
+    function render() {
+      svg.innerHTML = "";
+
+      const rect = getStageRect();
+      const width = Math.max(1, rect.width);
+      const height = Math.max(1, rect.height);
+      svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+
+      const viewport = createSVG("g", {
+        transform: `translate(${state.view.panX} ${state.view.panY}) scale(${state.view.zoom})`
+      });
+      svg.appendChild(viewport);
+
+      const d = buildPathD();
+      if (d) {
+        viewport.appendChild(createSVG("path", { d, class: "ghost-path" }));
+        viewport.appendChild(createSVG("path", { d, class: "main-path" }));
+      }
+
+      if (state.startPoint) {
+        state.segments.forEach((seg, i) => {
+          const segStart = getSegmentStart(i);
+          if (!segStart) return;
+
+          viewport.appendChild(createSVG("line", {
+            x1: segStart.x,
+            y1: segStart.y,
+            x2: seg.c1.x,
+            y2: seg.c1.y,
+            class: "helper-line"
+          }));
+
+          viewport.appendChild(createSVG("line", {
+            x1: seg.end.x,
+            y1: seg.end.y,
+            x2: seg.c2.x,
+            y2: seg.c2.y,
+            class: "helper-line"
+          }));
+        });
+
+        getAllHandles().forEach(handle => drawHandle(viewport, handle));
+      }
+
+      if (state.marquee) {
+        const x = Math.min(state.marquee.x1, state.marquee.x2);
+        const y = Math.min(state.marquee.y1, state.marquee.y2);
+        const w = Math.abs(state.marquee.x2 - state.marquee.x1);
+        const h = Math.abs(state.marquee.y2 - state.marquee.y1);
+
+        viewport.appendChild(createSVG("rect", {
+          x,
+          y,
+          width: w,
+          height: h,
+          class: "selection-rect"
+        }));
+      }
+
+      updateStats();
+      updateHud();
+    }
+
+    function handlePointerDown(evt) {
+      const screen = screenPointFromEvent(evt);
+      const world = screenToWorldFromScreen(screen);
+      const key = evt.target && evt.target.dataset ? evt.target.dataset.key : null;
+      const shouldPan = evt.button === 1 || state.spaceDown || state.mode === "pan";
+
+      if (shouldPan) {
+        evt.preventDefault();
+        state.pointer = {
+          type: "pan",
+          originScreen: screen,
+          originWorld: world,
+          initialView: { ...state.view },
+          moved: false
+        };
+        svg.classList.add("panning");
+        return;
+      }
+
+      if (key) {
+        evt.preventDefault();
+
+        if (evt.shiftKey) {
+          toggleSelection(key);
+        } else if (!state.selectedKeys.has(key)) {
+          selectOnly(key);
+        }
+
+        state.pointer = {
+          type: "group-drag",
+          originWorld: world,
+          originScreen: screen,
+          initialPoints: createSelectionSnapshot(state.selectedKeys),
+          moved: false
+        };
+
+        render();
+        return;
+      }
+
+      if (state.mode === "select") {
+        evt.preventDefault();
+        state.pointer = {
+          type: "marquee",
+          originWorld: world,
+          originScreen: screen,
+          additive: evt.shiftKey,
+          initialSelection: new Set(state.selectedKeys),
+          moved: false
+        };
+        state.marquee = { x1: world.x, y1: world.y, x2: world.x, y2: world.y };
+        if (!evt.shiftKey) {
+          state.selectedKeys.clear();
+        }
+        render();
+        return;
+      }
+
+      if (state.mode === "pen" && evt.button === 0) {
+        state.pointer = {
+          type: "pen-click",
+          originWorld: world,
+          originScreen: screen,
+          moved: false
+        };
+      }
+    }
+
+    function handlePointerMove(evt) {
+      if (!state.pointer || !state.pointer.type) return;
+
+      const screen = screenPointFromEvent(evt);
+      const world = screenToWorldFromScreen(screen);
+      const dxScreen = screen.x - state.pointer.originScreen.x;
+      const dyScreen = screen.y - state.pointer.originScreen.y;
+      const dxWorld = world.x - state.pointer.originWorld.x;
+      const dyWorld = world.y - state.pointer.originWorld.y;
+
+      if (Math.abs(dxScreen) > 2 || Math.abs(dyScreen) > 2) {
+        state.pointer.moved = true;
+      }
+
+      if (state.pointer.type === "pan") {
+        state.view.panX = state.pointer.initialView.panX + dxScreen;
+        state.view.panY = state.pointer.initialView.panY + dyScreen;
+        render();
+        return;
+      }
+
+      if (state.pointer.type === "group-drag") {
+        applyGroupDrag(dxWorld, dyWorld);
+        render();
+        return;
+      }
+
+      if (state.pointer.type === "marquee") {
+        state.marquee.x2 = world.x;
+        state.marquee.y2 = world.y;
+        updateMarqueeSelection();
+        render();
+      }
+    }
+
+    function handlePointerUp(evt) {
+      if (!state.pointer || !state.pointer.type) return;
+
+      const type = state.pointer.type;
+      const moved = state.pointer.moved;
+      const world = screenToWorld(evt);
+
+      if (type === "pen-click" && !moved) {
+        addSegment(world);
+      }
+
+      if (type === "marquee") {
+        updateMarqueeSelection();
+        state.marquee = null;
+        setStatus(`已框选 ${state.selectedKeys.size} 个点`);
+      }
+
+      if (type === "group-drag" && moved) {
+        setStatus(`已整体移动 ${state.selectedKeys.size} 个点`);
+      }
+
+      if (type === "pan") {
+        svg.classList.remove("panning");
+      }
+
+      if (moved) {
+        state.lastDragEndAt = Date.now();
+      }
+
+      state.pointer = { type: null };
+      render();
+    }
+
+    function handleWheel(evt) {
+      evt.preventDefault();
+      const screen = screenPointFromEvent(evt);
+      const factor = evt.deltaY < 0 ? 1.12 : 1 / 1.12;
+      zoomAtScreen(screen, factor);
+    }
+
+    function loadDemo() {
+      state.startPoint = { x: 120, y: 280 };
+      state.segments = [
+        {
+          c1: { x: 180, y: 120 },
+          c2: { x: 300, y: 120 },
+          end: { x: 360, y: 280 }
+        },
+        {
+          c1: { x: 420, y: 420 },
+          c2: { x: 540, y: 420 },
+          end: { x: 620, y: 260 }
+        },
+        {
+          c1: { x: 700, y: 110 },
+          c2: { x: 820, y: 170 },
+          end: { x: 900, y: 300 }
+        }
+      ];
+      state.selectedKeys.clear();
+      resetView();
+      exportPath();
+      setStatus("已加载演示路径");
+    }
+
+    svg.addEventListener("mousedown", handlePointerDown);
+    window.addEventListener("mousemove", handlePointerMove);
+    window.addEventListener("mouseup", handlePointerUp);
+    svg.addEventListener("wheel", handleWheel, { passive: false });
+    svg.addEventListener("contextmenu", evt => evt.preventDefault());
+
+    window.addEventListener("keydown", evt => {
+      if (evt.code === "Space") {
+        state.spaceDown = true;
+        evt.preventDefault();
+      }
+
+      if ((evt.ctrlKey || evt.metaKey) && evt.key.toLowerCase() === "s") {
+        evt.preventDefault();
+        saveLocal();
+      }
+
+      if (evt.key === "Escape") {
+        state.marquee = null;
+        clearSelection();
+      }
+
+      if ((evt.ctrlKey || evt.metaKey) && evt.key.toLowerCase() === "z") {
+        evt.preventDefault();
+        undoLastSegment();
+      }
+    });
+
+    window.addEventListener("keyup", evt => {
+      if (evt.code === "Space") {
+        state.spaceDown = false;
+      }
+    });
+
+    function undoLastSegment() {
+      if (state.segments.length > 0) {
+        state.segments.pop();
+      } else {
+        state.startPoint = null;
+      }
+      state.selectedKeys.clear();
+      setStatus("已撤销最后一段");
+      render();
+    }
+
+    modePen.addEventListener("click", () => setMode("pen"));
+    modeSelect.addEventListener("click", () => setMode("select"));
+    modePan.addEventListener("click", () => setMode("pan"));
+
+    btnZoomIn.addEventListener("click", () => zoomByButton(1.2));
+    btnZoomOut.addEventListener("click", () => zoomByButton(1 / 1.2));
+    btnResetView.addEventListener("click", resetView);
+
+    btnUndo.addEventListener("click", undoLastSegment);
+    btnClearSelection.addEventListener("click", clearSelection);
+    btnClear.addEventListener("click", () => {
+      state.startPoint = null;
+      state.segments = [];
+      state.selectedKeys.clear();
+      state.marquee = null;
+      output.value = "";
+      setStatus("已清空画布");
+      render();
+    });
+
+    btnExport.addEventListener("click", () => exportPath());
+    btnSaveLocal.addEventListener("click", saveLocal);
+    btnLoadLocal.addEventListener("click", loadLocal);
+    btnClearLocal.addEventListener("click", clearLocal);
+    btnImportText.addEventListener("click", importFromText);
+    btnLoadDemo.addEventListener("click", loadDemo);
+
+    btnCopy.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(output.value || "");
+        setStatus("已复制到剪贴板");
+      } catch (error) {
+        alert("复制失败，请手动复制。可能是浏览器权限限制。 ");
+      }
+    });
+
+    window.addEventListener("resize", render);
+
+    setMode("pen");
+    render();
+    /* bezier-pen-tool-path-cache-v2
+    {
+    "version": 2,
+    "updatedAt": "2026-05-06T11:44:06.897Z",
+    "startPoint": {
+        "x": 233.1975195503677,
+        "y": 905.6880813553826
+    },
+    "segments": [
+        {
+            "c1": {
+                "x": 424.59463509140096,
+                "y": 739.2613017580676
+            },
+            "c2": {
+                "x": 512.8563811680854,
+                "y": 589.1897145014187
+            },
+            "end": {
+                "x": 587.5,
+                "y": 426
+            }
+        },
+        {
+            "c1": {
+                "x": 598.1651115515077,
+                "y": 389.5015551151589
+            },
+            "c2": {
+                "x": 579.8322225367913,
+                "y": 379.23936471985763
+            },
+            "end": {
+                "x": 552,
+                "y": 383
+            }
+        },
+        {
+            "c1": {
+                "x": 520.0492058998219,
+                "y": 390.5243807906026
+            },
+            "c2": {
+                "x": 518.1328949625101,
+                "y": 409.2127616500178
+            },
+            "end": {
+                "x": 519.2673656064,
+                "y": 429.30324373760004
+            }
+        },
+        {
+            "c1": {
+                "x": 520.2546320719873,
+                "y": 446.61255132353233
+            },
+            "c2": {
+                "x": 548.8107298171981,
+                "y": 509.2129844954793
+            },
+            "end": {
+                "x": 587,
+                "y": 521
+            }
+        },
+        {
+            "c1": {
+                "x": 631.6425080353724,
+                "y": 527.6657780294331
+            },
+            "c2": {
+                "x": 677.6831313312584,
+                "y": 466.41945236973305
+            },
+            "end": {
+                "x": 706,
+                "y": 503
+            }
+        },
+        {
+            "c1": {
+                "x": 726.5708190969335,
+                "y": 524.4703494178693
+            },
+            "c2": {
+                "x": 597.7359141497344,
+                "y": 802.724671004517
+            },
+            "end": {
+                "x": 690,
+                "y": 813
+            }
+        },
+        {
+            "c1": {
+                "x": 776.511402835779,
+                "y": 831.6634406461654
+            },
+            "c2": {
+                "x": 886.0827134104973,
+                "y": 587.5870304916903
+            },
+            "end": {
+                "x": 918.1612474595582,
+                "y": 548.7267852027073
+            }
+        },
+        {
+            "c1": {
+                "x": 952.409123336966,
+                "y": 505.23705485991036
+            },
+            "c2": {
+                "x": 976.782110442735,
+                "y": 467.0230180044697
+            },
+            "end": {
+                "x": 1029.4447372374552,
+                "y": 465.6083976458403
+            }
+        },
+        {
+            "c1": {
+                "x": 1101.6004260687355,
+                "y": 464.15789997573506
+            },
+            "c2": {
+                "x": 1125.8417445939212,
+                "y": 497.61198428632844
+            },
+            "end": {
+                "x": 1135.0827155151105,
+                "y": 552.2333295314113
+            }
+        },
+        {
+            "c1": {
+                "x": 1140.6492182353968,
+                "y": 616.1121934671369
+            },
+            "c2": {
+                "x": 1133.404634719081,
+                "y": 817.2389674870307
+            },
+            "end": {
+                "x": 1007,
+                "y": 817
+            }
+        },
+        {
+            "c1": {
+                "x": 881.8351539606824,
+                "y": 806.3405199896558
+            },
+            "c2": {
+                "x": 913.683062972161,
+                "y": 622.2672216350618
+            },
+            "end": {
+                "x": 916.7115342103722,
+                "y": 592.1641657232014
+            }
+        },
+        {
+            "c1": {
+                "x": 921.1701065027173,
+                "y": 573.5186908283856
+            },
+            "c2": {
+                "x": 919.8791567130853,
+                "y": 554.8732159335698
+            },
+            "end": {
+                "x": 935.549297065285,
+                "y": 544.2770719535213
+            }
+        },
+        {
+            "c1": {
+                "x": 969.7257786111572,
+                "y": 535.3691360706437
+            },
+            "c2": {
+                "x": 960.2877740653443,
+                "y": 634.684669942802
+            },
+            "end": {
+                "x": 1112.1612474595581,
+                "y": 637.9947034258832
+            }
+        },
+        {
+            "c1": {
+                "x": 1202.7721992451056,
+                "y": 643.2581709985086
+            },
+            "c2": {
+                "x": 1231.3333333333333,
+                "y": 486.0268406103413
+            },
+            "end": {
+                "x": 1288,
+                "y": 485
+            }
+        },
+        {
+            "c1": {
+                "x": 1331.1275819485631,
+                "y": 479.22291832281917
+            },
+            "c2": {
+                "x": 1254.6515579446066,
+                "y": 818.9650297619046
+            },
+            "end": {
+                "x": 1333,
+                "y": 829
+            }
+        },
+        {
+            "c1": {
+                "x": 1389.7117802478133,
+                "y": 821.7494989067054
+            },
+            "c2": {
+                "x": 1471.9508847592656,
+                "y": 471.38940668744897
+            },
+            "end": {
+                "x": 1493.882197521866,
+                "y": 469.1528790087463
+            }
+        },
+        {
+            "c1": {
+                "x": 1510.3428193303314,
+                "y": 471.24810408728763
+            },
+            "c2": {
+                "x": 1515.7595369530147,
+                "y": 590.4798957418893
+            },
+            "end": {
+                "x": 1576,
+                "y": 643
+            }
+        },
+        {
+            "c1": {
+                "x": 1619.9512664228478,
+                "y": 677.6968085605305
+            },
+            "c2": {
+                "x": 1756.379514530467,
+                "y": 669.8050476251003
+            },
+            "end": {
+                "x": 1777.0470033385593,
+                "y": 622.4352343646024
+            }
+        },
+        {
+            "c1": {
+                "x": 1799.2665770631563,
+                "y": 554.9915040681637
+            },
+            "c2": {
+                "x": 1750.0766740730016,
+                "y": 472.68264603589
+            },
+            "end": {
+                "x": 1671,
+                "y": 485
+            }
+        },
+        {
+            "c1": {
+                "x": 1594.0706894290697,
+                "y": 500.63238284593047
+            },
+            "c2": {
+                "x": 1591.8627507364556,
+                "y": 594.0484221294203
+            },
+            "end": {
+                "x": 1594,
+                "y": 669
+            }
+        },
+        {
+            "c1": {
+                "x": 1602.5218155126026,
+                "y": 749.6334483182849
+            },
+            "c2": {
+                "x": 1626.072109951291,
+                "y": 824.8235574237041
+            },
+            "end": {
+                "x": 1698.0988950057729,
+                "y": 827.4368018541338
+            }
+        },
+        {
+            "c1": {
+                "x": 1760.460790719346,
+                "y": 827.127772825467
+            },
+            "c2": {
+                "x": 1808.462154937903,
+                "y": 798.3456581648212
+            },
+            "end": {
+                "x": 1856.2994169143933,
+                "y": 734.2053795443763
+            }
+        },
+        {
+            "c1": {
+                "x": 1894.9633465795987,
+                "y": 697.1956075142111
+            },
+            "c2": {
+                "x": 2036.7167065093965,
+                "y": 448.63125022802
+            },
+            "end": {
+                "x": 2099.2256145351753,
+                "y": 337.8211638404221
+            }
+        },
+        {
+            "c1": {
+                "x": 2133.6707732448594,
+                "y": 281.26176510211235
+            },
+            "c2": {
+                "x": 2156.946421693543,
+                "y": 203.86265627343738
+            },
+            "end": {
+                "x": 2116.202458489595,
+                "y": 208.49113169935998
+            }
+        },
+        {
+            "c1": {
+                "x": 2015.0788170795345,
+                "y": 225.05464393186784
+            },
+            "c2": {
+                "x": 1838.1449389282411,
+                "y": 806.6914435787471
+            },
+            "end": {
+                "x": 1946.5761931235324,
+                "y": 816.227033831941
+            }
+        },
+        {
+            "c1": {
+                "x": 2032.4690242883096,
+                "y": 837.7033673414966
+            },
+            "c2": {
+                "x": 2110.584370904735,
+                "y": 690.7194928596543
+            },
+            "end": {
+                "x": 2141.4580472092944,
+                "y": 640.6769182839455
+            }
+        },
+        {
+            "c1": {
+                "x": 2171.711992120135,
+                "y": 588.6310822644093
+            },
+            "c2": {
+                "x": 2188.6918598995294,
+                "y": 568.3803935072057
+            },
+            "end": {
+                "x": 2206.8809736268163,
+                "y": 550.5430763169762
+            }
+        },
+        {
+            "c1": {
+                "x": 2233.020270774184,
+                "y": 533.2283282722107
+            },
+            "c2": {
+                "x": 2274.6633252181905,
+                "y": 512.8599005623942
+            },
+            "end": {
+                "x": 2298.722419171394,
+                "y": 520.2330645502929
+            }
+        },
+        {
+            "c1": {
+                "x": 2278.8032525227695,
+                "y": 528.3870109557176
+            },
+            "c2": {
+                "x": 2236.3799967016193,
+                "y": 519.8666659587041
+            },
+            "end": {
+                "x": 2188.2929815613093,
+                "y": 575.7541790325563
+            }
+        },
+        {
+            "c1": {
+                "x": 2125.45848019394,
+                "y": 658.3151379335666
+            },
+            "c2": {
+                "x": 2054.452501510404,
+                "y": 807.004528918081
+            },
+            "end": {
+                "x": 2170.838834067033,
+                "y": 815.9167097036781
+            }
+        },
+        {
+            "c1": {
+                "x": 2273.23901593748,
+                "y": 825.5277780074013
+            },
+            "c2": {
+                "x": 2336.1315738572134,
+                "y": 553.6108953807621
+            },
+            "end": {
+                "x": 2317.4484497563826,
+                "y": 534.8388524813471
+            }
+        },
+        {
+            "c1": {
+                "x": 2310.1027990468997,
+                "y": 527.8119034401217
+            },
+            "c2": {
+                "x": 2302.3774734080057,
+                "y": 530.1702945208475
+            },
+            "end": {
+                "x": 2296.754575138152,
+                "y": 544.2743373439602
+            }
+        },
+        {
+            "c1": {
+                "x": 2285.80177716513,
+                "y": 561.9809380152791
+            },
+            "c2": {
+                "x": 2248.4225162619123,
+                "y": 827.9899192800531
+            },
+            "end": {
+                "x": 2350.132502233737,
+                "y": 816.8237684119282
+            }
+        },
+        {
+            "c1": {
+                "x": 2440.457091324558,
+                "y": 822.8425762563163
+            },
+            "c2": {
+                "x": 2574.268072760798,
+                "y": 555.4452522763303
+            },
+            "end": {
+                "x": 2565.786473156556,
+                "y": 511.58395307853965
+            }
+        },
+        {
+            "c1": {
+                "x": 2564.6520429213765,
+                "y": 484.76602502621364
+            },
+            "c2": {
+                "x": 2534.754261293671,
+                "y": 494.14118843356175
+            },
+            "end": {
+                "x": 2522.3489220063566,
+                "y": 529.2050364680715
+            }
+        },
+        {
+            "c1": {
+                "x": 2498.7510669506305,
+                "y": 653.9277625386355
+            },
+            "c2": {
+                "x": 2653.4117857771257,
+                "y": 761.5344368806467
+            },
+            "end": {
+                "x": 2593.304598239737,
+                "y": 805.3223968443436
+            }
+        },
+        {
+            "c1": {
+                "x": 2566.202330730239,
+                "y": 822.7599255421025
+            },
+            "c2": {
+                "x": 2530.618515433174,
+                "y": 817.1761102450375
+            },
+            "end": {
+                "x": 2502.3045982397375,
+                "y": 804.3223968443436
+            }
+        },
+        {
+            "c1": {
+                "x": 2479.4172393692643,
+                "y": 784.0596134056564
+            },
+            "c2": {
+                "x": 2496.5143200687485,
+                "y": 747.6415008477944
+            },
+            "end": {
+                "x": 2523.3045982397375,
+                "y": 742.3223968443438
+            }
+        },
+        {
+            "c1": {
+                "x": 2590.0049103761835,
+                "y": 727.1159339704199
+            },
+            "c2": {
+                "x": 2614.2974835747955,
+                "y": 757.9521590861438
+            },
+            "end": {
+                "x": 2671.304598239737,
+                "y": 740.3223968443438
+            }
+        },
+        {
+            "c1": {
+                "x": 2757.730980881573,
+                "y": 732.4534836223042
+            },
+            "c2": {
+                "x": 2920.6016829753503,
+                "y": 250.67806771174827
+            },
+            "end": {
+                "x": 2901.2480091168127,
+                "y": 221.46065096530128
+            }
+        },
+        {
+            "c1": {
+                "x": 2899.463415646317,
+                "y": 201.48295743481864
+            },
+            "c2": {
+                "x": 2866.040631819962,
+                "y": 199.39252738963597
+            },
+            "end": {
+                "x": 2858.62951571354,
+                "y": 231.61307335419582
+            }
+        },
+        {
+            "c1": {
+                "x": 2840.0273559818506,
+                "y": 250.87373471349318
+            },
+            "c2": {
+                "x": 2733.2304609736293,
+                "y": 739.7815160369912
+            },
+            "end": {
+                "x": 2792.3473604718793,
+                "y": 795.3599863141054
+            }
+        },
+        {
+            "c1": {
+                "x": 2843.0201253937444,
+                "y": 842.9710901116215
+            },
+            "c2": {
+                "x": 2928.657026503974,
+                "y": 810.3339841424784
+            },
+            "end": {
+                "x": 3008.2220393189305,
+                "y": 737.8932053342647
+            }
+        }
+    ],
+    "view": {
+        "zoom": 0.4705864524180295,
+        "panX": 287.9779098036845,
+        "panY": 207.8289983166855
+    }
+}
+    */
+  </script>
+</body>
+</html>
