@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { FrostedGlassPanel } from "@/components/FrostedGlassPanel";
+import { ExpandingCards } from "@/components/ExpandingCards";
 import { FlowTextCanvas } from "@/components/FlowTextCanvas";
 import { homeVisualConfig } from "@/components/homeVisualConfig";
 
@@ -15,7 +15,7 @@ export default function Home() {
         className="liquid-flow-canvas"
         colorFlowSpeed={homeVisualConfig.flowText.colorSpeed}
       />
-      <FrostedGlassPanel />
+      {/* <ExpandingCards /> */}
     </main>
   );
 }

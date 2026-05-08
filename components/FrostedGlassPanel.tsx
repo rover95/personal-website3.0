@@ -22,10 +22,14 @@ export function FrostedGlassPanel() {
   const [position, setPosition] = useState({ x: 0, y: INITIAL_TOP });
 
   useEffect(() => {
-    setPosition({
-      x: Math.max((window.innerWidth - PANEL_WIDTH) / 2, 0),
-      y: Math.min(INITIAL_TOP, Math.max(window.innerHeight - PANEL_HEIGHT, 0)),
+    const frame = requestAnimationFrame(() => {
+      setPosition({
+        x: Math.max((window.innerWidth - PANEL_WIDTH) / 2, 0),
+        y: Math.min(INITIAL_TOP, Math.max(window.innerHeight - PANEL_HEIGHT, 0)),
+      });
     });
+
+    return () => cancelAnimationFrame(frame);
   }, []);
 
   function handlePointerDown(event: React.PointerEvent<HTMLElement>) {
